@@ -23,6 +23,41 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+// ---------- transient-failure retry ----------
+// The REST gateway occasionally answers a perfectly good request with an
+// instant 504 (observed on scheduled runs right at the top of the hour), and
+// the identical request succeeds a second later. Retry those with backoff;
+// real data errors (bad input, missing history) still fail immediately.
+// "JWT issued at future" is a cold-start clock-skew rejection from PostgREST
+// that clears within seconds, so it is treated as transient too.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function isTransient(msg: string): boolean {
+  return /timeout|gateway|\b50[234]\b|fetch failed|network|connection|ECONNRESET|EPIPE|issued at future|jwt/i.test(msg);
+}
+async function withRetry<T>(
+  label: string,
+  fn: () => PromiseLike<{ data: T | null; error: { message: string } | null }>,
+  attempts = 4,
+): Promise<T | null> {
+  let lastMsg = "";
+  for (let i = 0; i < attempts; i++) {
+    let res: { data: T | null; error: { message: string } | null };
+    try {
+      res = await fn();
+    } catch (e) {
+      lastMsg = e instanceof Error ? e.message : String(e);
+      if (!isTransient(lastMsg)) throw new Error(`${label}: ${lastMsg}`);
+      await sleep(800 * (i + 1));
+      continue;
+    }
+    if (!res.error) return res.data;
+    lastMsg = res.error.message;
+    if (!isTransient(lastMsg)) throw new Error(`${label}: ${lastMsg}`);
+    await sleep(800 * (i + 1));
+  }
+  throw new Error(`${label}: ${lastMsg} (gave up after ${attempts} attempts)`);
+}
+
 // ---------- pure array math helpers (mirror pandas .rolling()/.pct_change()) ----------
 
 function rollingMean(x: number[], window: number): (number | null)[] {
@@ -102,13 +137,14 @@ Deno.serve(async (req: Request) => {
     const bySymbol = new Map<string, Map<string, number>>();
     for (const sym of ALL_SYMBOLS) bySymbol.set(sym, new Map());
     for (const sym of ALL_SYMBOLS) {
-      const { data: rows, error: fetchErr } = await supabase
-        .from("raw_prices")
-        .select("date,close")
-        .eq("symbol", sym)
-        .order("date", { ascending: true })
-        .range(0, 9999);
-      if (fetchErr) throw new Error(`raw_prices read failed for ${sym}: ${fetchErr.message}`);
+      const rows = await withRetry(`raw_prices read failed for ${sym}`, () =>
+        supabase
+          .from("raw_prices")
+          .select("date,close")
+          .eq("symbol", sym)
+          .order("date", { ascending: true })
+          .range(0, 9999)
+      );
       if (!rows || rows.length === 0) throw new Error(`no raw_prices data found for ${sym}`);
       const m = bySymbol.get(sym)!;
       for (const r of rows as { date: string; close: number }[]) {
@@ -152,7 +188,16 @@ Deno.serve(async (req: Request) => {
     const zCurve = rollZ(pctChange(curveRatio, 20));
 
     // 3) per-index trend + composite
-    const results: { symbol: string; score: number; bucket: string }[] = [];
+    const results: {
+      symbol: string;
+      score: number;
+      bucket: string;
+      z_trend: number | null;
+      z_breadth: number | null;
+      z_vol: number | null;
+      z_credit: number | null;
+      z_curve: number | null;
+    }[] = [];
     const historyRows: { d: string; spy: number | null; qqq: number | null; iwm: number | null }[] =
       dates.map((d) => ({ d, spy: null, qqq: null, iwm: null }));
 
@@ -188,27 +233,53 @@ Deno.serve(async (req: Request) => {
 
       const latest = composite[composite.length - 1];
       if (latest === null) throw new Error(`latest composite score for ${idx} is null (insufficient history)`);
-      results.push({ symbol: idx, score: Math.round(latest * 10000) / 10000, bucket: bucket(latest) });
+
+      const round4 = (v: number | null) => (v === null ? null : Math.round(v * 10000) / 10000);
+      results.push({
+        symbol: idx,
+        score: Math.round(latest * 10000) / 10000,
+        bucket: bucket(latest),
+        // the raw component z-scores that feed the composite above, exposed so
+        // the UI can show exactly what's being tracked -- not just the blend.
+        z_trend: round4(zTrend[zTrend.length - 1]),
+        z_breadth: round4(zBreadth[zBreadth.length - 1]),
+        z_vol: round4(zVol[zVol.length - 1]),
+        z_credit: round4(zCredit[zCredit.length - 1]),
+        z_curve: round4(zCurve[zCurve.length - 1]),
+      });
     }
 
     const asOf = dates[dates.length - 1];
 
     // 4) upsert regime_snapshot
-    const { error: snapErr } = await supabase.from("regime_snapshot").upsert(
-      results.map((r) => ({ index_symbol: r.symbol, score: r.score, bucket: r.bucket, as_of: asOf })),
-      { onConflict: "index_symbol" },
+    await withRetry("regime_snapshot upsert failed", () =>
+      supabase.from("regime_snapshot").upsert(
+        results.map((r) => ({
+          index_symbol: r.symbol,
+          score: r.score,
+          bucket: r.bucket,
+          as_of: asOf,
+          z_trend: r.z_trend,
+          z_breadth: r.z_breadth,
+          z_vol: r.z_vol,
+          z_credit: r.z_credit,
+          z_curve: r.z_curve,
+        })),
+        { onConflict: "index_symbol" },
+      )
     );
-    if (snapErr) throw new Error(`regime_snapshot upsert failed: ${snapErr.message}`);
 
     // 5) append/update regime_history: only rows with all 3 composites present,
     // and only the last N (avoid rewriting the whole 2000+ row history every run)
-    const { data: maxRow } = await supabase
-      .from("regime_history")
-      .select("d")
-      .order("d", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const lastStored = maxRow?.d as string | undefined;
+    const maxRow = await withRetry("regime_history read failed", () =>
+      supabase
+        .from("regime_history")
+        .select("d")
+        .order("d", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    );
+    const lastStored = (maxRow as { d?: string } | null)?.d;
 
     const validHistory = historyRows.filter(
       (r) => r.spy !== null && r.qqq !== null && r.iwm !== null,
@@ -218,23 +289,26 @@ Deno.serve(async (req: Request) => {
       : validHistory.slice(-30); // first run: seed the last 30 days only, backfill was done separately
 
     if (newHistory.length > 0) {
-      const { error: histErr } = await supabase.from("regime_history").upsert(
-        newHistory.map((r) => ({
-          d: r.d,
-          spy: Math.round(r.spy! * 10000) / 10000,
-          qqq: Math.round(r.qqq! * 10000) / 10000,
-          iwm: Math.round(r.iwm! * 10000) / 10000,
-        })),
-        { onConflict: "d" },
+      await withRetry("regime_history upsert failed", () =>
+        supabase.from("regime_history").upsert(
+          newHistory.map((r) => ({
+            d: r.d,
+            spy: Math.round(r.spy! * 10000) / 10000,
+            qqq: Math.round(r.qqq! * 10000) / 10000,
+            iwm: Math.round(r.iwm! * 10000) / 10000,
+          })),
+          { onConflict: "d" },
+        )
       );
-      if (histErr) throw new Error(`regime_history upsert failed: ${histErr.message}`);
     }
 
-    await supabase.from("refresh_log").insert({
-      source: "compute-regime-score",
-      ok: true,
-      note: `as_of=${asOf} snapshot=${results.length} history_rows=${newHistory.length}`,
-    });
+    await withRetry("refresh_log insert failed", () =>
+      supabase.from("refresh_log").insert({
+        source: "compute-regime-score",
+        ok: true,
+        note: `as_of=${asOf} snapshot=${results.length} history_rows=${newHistory.length}`,
+      })
+    ).catch(() => {}); // logging must never fail the run
 
     return new Response(
       JSON.stringify({ ok: true, as_of: asOf, snapshot: results, history_rows_written: newHistory.length }),
@@ -242,7 +316,9 @@ Deno.serve(async (req: Request) => {
     );
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await supabase.from("refresh_log").insert({ source: "compute-regime-score", ok: false, note: message });
+    await withRetry("refresh_log insert failed", () =>
+      supabase.from("refresh_log").insert({ source: "compute-regime-score", ok: false, note: message })
+    ).catch(() => {});
     return new Response(JSON.stringify({ ok: false, error: message }), { status: 500 });
   }
 });

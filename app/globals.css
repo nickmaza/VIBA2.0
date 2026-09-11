@@ -3,25 +3,35 @@
 @tailwind utilities;
 
 html, body {
-  background: #000000;
-  color: #e8e8e2;
+  background: #0b0b0b;
+  color: #e6e6e6;
+  font-size: 11.5px;
+  line-height: 1.35;
 }
 
 * {
   box-sizing: border-box;
 }
 
-::-webkit-scrollbar { height: 8px; width: 8px; }
-::-webkit-scrollbar-track { background: #0a0a0a; }
-::-webkit-scrollbar-thumb { background: #2a2a28; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #3d3d3a; }
+::-webkit-scrollbar { height: 9px; width: 9px; }
+::-webkit-scrollbar-track { background: #141414; }
+::-webkit-scrollbar-thumb { background: #3a3a3a; border: 2px solid #141414; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #5a5a5a; }
+
+/* window title bars: subtle vertical gradient like a desktop workstation */
+.panel-title {
+  background: linear-gradient(#333333, #262626);
+}
+
+/* dense data rows */
+.row-hover:hover { background: #1f1f1f; }
 
 @keyframes ticker-scroll {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
 }
 .ticker-track {
-  animation: ticker-scroll 45s linear infinite;
+  animation: ticker-scroll 60s linear infinite;
 }
 .ticker-track:hover {
   animation-play-state: paused;
@@ -35,7 +45,16 @@ html, body {
   animation: blink-dot 1.6s ease-in-out infinite;
 }
 
+@keyframes flash-row {
+  from { background: rgba(108, 179, 63, 0.35); }
+  to { background: transparent; }
+}
+.flash-update {
+  animation: flash-row 1.2s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ticker-track { animation: none; }
   .live-dot { animation: none; }
+  .flash-update { animation: none; }
 }

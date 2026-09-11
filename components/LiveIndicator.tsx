@@ -17,7 +17,7 @@ export default function LiveIndicator({
       <span className={isLive ? "text-term-green" : "text-term-yellow"}>
         {isLive ? "LIVE — SUPABASE" : "DEMO DATA"}
       </span>
-      <span className="text-term-dim">· as of {asOf}</span>
+      <span className="hidden text-term-dim sm:inline">· as of {asOf}</span>
     </div>
   );
 }

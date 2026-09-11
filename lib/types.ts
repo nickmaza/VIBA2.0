@@ -26,6 +26,13 @@ export interface RawPriceRow {
   date: string; // ISO date, latest close on file for this symbol
   close: number;
   updated_at: string; // ISO timestamp, when this row was last written
+  // From the latest_prices view: previous session's close, the change vs it,
+  // and the trailing-252-session high/low. Null when there's no prior bar.
+  prev_close: number | null;
+  chg: number | null;
+  chg_pct: number | null;
+  hi_52w: number | null;
+  lo_52w: number | null;
 }
 
 export interface RefreshLogRow {
@@ -47,10 +54,10 @@ export interface SectorRankingRow {
   rank: number;
   ticker: string;
   name: string;
-  score: number;
-  r3: number;
-  r6: number;
-  r12: number;
+  score: number; // risk-adjusted blended momentum (unitless)
+  r3: number; // trailing 3-month total return, in PERCENT (12.9 = +12.9%)
+  r6: number; // trailing 6-month total return, in percent
+  r12: number; // trailing 12-month total return, in percent
   as_of: string;
 }
 

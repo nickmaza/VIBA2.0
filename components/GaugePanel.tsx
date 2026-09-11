@@ -1,154 +1,132 @@
-import type { RegimeSnapshotRow, RegimeHistoryRow } from "@/lib/types";
+import type { RegimeSnapshotRow } from "@/lib/types";
+import { REGIME_LEGS } from "@/lib/instruments";
+import { bucketColor, bucketBg } from "@/components/QuoteCard";
 
-function bucketColor(bucket: string) {
-  if (bucket.includes("strong risk-on") || bucket === "risk-on") return "text-term-green";
-  if (bucket === "neutral") return "text-term-yellow";
-  if (bucket.includes("caution")) return "text-term-amber";
-  return "text-term-red";
+function fmtZ(v: number | null | undefined) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "n/a";
+  return (v >= 0 ? "+" : "") + v.toFixed(2);
 }
-function bucketBg(bucket: string) {
-  if (bucket.includes("strong risk-on") || bucket === "risk-on") return "bg-term-green/10 border-term-green/40";
-  if (bucket === "neutral") return "bg-term-yellow/10 border-term-yellow/40";
-  if (bucket.includes("caution")) return "bg-term-amber/10 border-term-amber/40";
-  return "bg-term-red/10 border-term-red/40";
+function zColor(v: number | null | undefined) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "text-term-dim";
+  return v >= 0 ? "text-term-green" : "text-term-red";
 }
 
-function Sparkline({ values, color }: { values: number[]; color: string }) {
-  const W = 200,
-    H = 32;
-  const min = Math.min(...values),
-    max = Math.max(...values);
-  const pad = (max - min) * 0.15 || 0.5;
-  const y0 = min - pad,
-    y1 = max + pad;
-  const pts = values.map((v, i) => {
-    const x = values.length > 1 ? (i / (values.length - 1)) * W : W / 2;
-    const y = H - ((v - y0) / (y1 - y0)) * H;
-    return [x, y];
-  });
-  const zeroY = H - ((0 - y0) / (y1 - y0)) * H;
-  const path = "M" + pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" L ");
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-8 w-full" preserveAspectRatio="none">
-      <line x1={0} y1={zeroY} x2={W} y2={zeroY} stroke="#2a2a28" strokeWidth={1} strokeDasharray="2,3" />
-      <path d={path} fill="none" stroke={color} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r={2.5} fill={color} />
-    </svg>
-  );
-}
-
-const SPARK_COLOR: Record<string, string> = {
-  "text-term-green": "#2ecc40",
-  "text-term-yellow": "#ffd93d",
-  "text-term-amber": "#ff9d2e",
-  "text-term-red": "#ff4136",
-};
-
-// The five inputs blended into the composite score above, and the weight each
-// carries -- shown per-index so it's transparent exactly what's being tracked,
-// not just the final blended number. z_breadth/z_vol/z_credit/z_curve are
-// market-wide (identical across SPY/QQQ/IWM); z_trend is index-specific.
-const COMPONENTS: {
-  key: "z_trend" | "z_breadth" | "z_vol" | "z_credit" | "z_curve";
-  label: string;
-  weight: string;
-}[] = [
-  { key: "z_trend", label: "Trend · 50/200dma", weight: "25%" },
-  { key: "z_breadth", label: "Breadth · RSP/SPY", weight: "25%" },
-  { key: "z_vol", label: "Volatility · VIXY", weight: "20%" },
-  { key: "z_credit", label: "Credit · HYG/IEF", weight: "20%" },
-  { key: "z_curve", label: "Rate curve · IEF/SHY", weight: "10%" },
-];
-
-function ComponentBar({ value }: { value: number | null | undefined }) {
-  if (value == null || !Number.isFinite(value)) {
-    return <span className="relative block h-1.5 w-full bg-[#1a1a18]" />;
+function ZBar({ value }: { value: number | null | undefined }) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return <span className="relative block h-1.5 w-full bg-term-panel2" />;
   }
   const clamped = Math.max(-3, Math.min(3, value));
   const pct = (Math.abs(clamped) / 3) * 50;
   const pos = clamped >= 0;
   return (
-    <span className="relative block h-1.5 w-full bg-[#1a1a18]">
+    <span className="relative block h-1.5 w-full bg-term-panel2">
       <span
         className={`absolute top-0 bottom-0 ${pos ? "bg-term-green" : "bg-term-red"}`}
         style={pos ? { left: "50%", width: `${pct}%` } : { right: "50%", width: `${pct}%` }}
       />
-      <span className="absolute top-0 bottom-0 left-1/2 w-px bg-term-border" />
+      <span className="absolute top-0 bottom-0 left-1/2 w-px bg-term-borderStrong" />
     </span>
   );
 }
 
-export default function GaugePanel({
-  snapshot,
-  history,
-}: {
-  snapshot: RegimeSnapshotRow[];
-  history: RegimeHistoryRow[];
-}) {
-  const recent = history.slice(-13);
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      {snapshot.map((s) => {
-        const color = bucketColor(s.bucket);
-        const key = s.index_symbol.toLowerCase() as "spy" | "qqq" | "iwm";
-        const values = recent.map((r) => r[key]);
-        return (
-          <div
-            key={s.index_symbol}
-            className="border border-term-border bg-term-panel p-4"
-          >
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-semibold tracking-wide text-term-amber">
-                {s.index_symbol}
-              </span>
-              <span
-                className={`border px-2 py-0.5 text-[10px] uppercase tracking-wide ${bucketBg(
-                  s.bucket
-                )} ${color}`}
-              >
-                {s.bucket}
-              </span>
-            </div>
-            <div className="mb-2 text-3xl font-semibold tabular-nums text-term-text">
-              {s.score >= 0 ? "+" : ""}
-              {s.score.toFixed(2)}
-              <span className="ml-1.5 text-xs font-normal text-term-dim">z-score</span>
-            </div>
-            {values.length > 1 && (
-              <Sparkline values={values} color={SPARK_COLOR[color]} />
-            )}
-            <div className="mt-1 text-[10.5px] text-term-dim">13-wk trend · weekly close</div>
+/**
+ * "Multi-leg ticket" view of the composite regime score: the five weighted
+ * legs, what each one reads, its weight, and its current z-score for every
+ * index side by side -- so exactly what's being tracked is visible, not just
+ * the blended number. Legs 2-5 are market-wide (identical for SPY/QQQ/IWM);
+ * leg 1 (trend) is index-specific.
+ */
+export default function GaugePanel({ snapshot }: { snapshot: RegimeSnapshotRow[] }) {
+  const order = ["SPY", "QQQ", "IWM"];
+  const snaps = order
+    .map((s) => snapshot.find((r) => r.index_symbol === s))
+    .filter((r): r is RegimeSnapshotRow => Boolean(r));
 
-            <div className="mt-3 space-y-1.5 border-t border-term-border/60 pt-2.5">
-              {COMPONENTS.map((c) => {
-                const v = s[c.key];
+  // Static class string on purpose: Tailwind only generates classes it can
+  // find verbatim in the source, so this can't be built from snaps.length.
+  const cols = "grid-cols-[minmax(76px,1fr)_30px_54px_54px_54px]";
+
+  return (
+    <div className="text-[11px]">
+      {/* ticket header: which symbols are on the ticket */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-term-border bg-term-panel2 px-2 py-1 text-[10px]">
+        <span className="uppercase text-term-dim">Symbol</span>
+        {snaps.map((s) => (
+          <span key={s.index_symbol} className="border border-term-borderStrong bg-term-panel px-1.5 py-px font-bold">
+            {s.index_symbol}
+          </span>
+        ))}
+        <span className="ml-auto uppercase text-term-dim">Strategy</span>
+        <span className="border border-term-borderStrong bg-term-panel px-1.5 py-px">Composite z</span>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="min-w-[280px]">
+          <div className={`grid ${cols} items-center gap-x-1 border-b border-term-border px-2 py-1 text-[10px] uppercase text-term-dim`}>
+            <span>Leg · reads</span>
+            <span className="text-right">Wt</span>
+            {snaps.map((s) => (
+              <span key={s.index_symbol} className="text-right">
+                {s.index_symbol} z
+              </span>
+            ))}
+          </div>
+
+          {REGIME_LEGS.map((leg) => (
+            <div
+              key={leg.key}
+              className={`row-hover grid ${cols} items-center gap-x-1 border-b border-term-border/60 px-2 py-1`}
+            >
+              <span className="min-w-0 leading-tight">
+                <span className="block font-semibold text-term-text">
+                  <span className="text-term-dim">{leg.leg} · </span>
+                  {leg.label}
+                  {!leg.perIndex && <span className="ml-1 text-[9px] font-normal text-term-dim">mkt-wide</span>}
+                </span>
+                <span className="block truncate text-[10px] text-term-dim">{leg.inputs}</span>
+              </span>
+              <span className="text-right tabular-nums text-term-text">{Math.round(leg.weight * 100)}%</span>
+              {snaps.map((s) => {
+                const v = s[leg.key];
                 return (
-                  <div
-                    key={c.key}
-                    className="grid grid-cols-[1fr_56px_40px] items-center gap-2 text-[10.5px]"
-                  >
-                    <span className="text-term-dim">
-                      {c.label} <span className="text-term-dim/70">({c.weight})</span>
-                    </span>
-                    <ComponentBar value={v} />
-                    <span
-                      className={`text-right tabular-nums ${
-                        v == null || !Number.isFinite(v)
-                          ? "text-term-dim"
-                          : v >= 0
-                          ? "text-term-green"
-                          : "text-term-red"
-                      }`}
-                    >
-                      {v == null || !Number.isFinite(v) ? "n/a" : (v >= 0 ? "+" : "") + v.toFixed(2)}
-                    </span>
-                  </div>
+                  <span key={s.index_symbol} className="flex flex-col items-end gap-0.5">
+                    <span className={`tabular-nums ${zColor(v)}`}>{fmtZ(v)}</span>
+                    <ZBar value={v} />
+                  </span>
                 );
               })}
             </div>
+          ))}
+
+          {/* composite row, like a ticket's net line */}
+          <div className={`grid ${cols} items-center gap-x-1 border-t border-term-borderStrong bg-term-panel2 px-2 py-1.5`}>
+            <span className="leading-tight">
+              <span className="block font-semibold text-term-text">
+                <span className="text-term-dim">Σ · </span>Composite
+              </span>
+              <span className="block text-[10px] text-term-dim">re-standardized · 252 sessions</span>
+            </span>
+            <span className="text-right tabular-nums text-term-dim">100%</span>
+            {snaps.map((s) => (
+              <span key={s.index_symbol} className="flex flex-col items-end gap-0.5">
+                <span className={`text-[13px] font-bold tabular-nums ${bucketColor(s.bucket)}`}>{fmtZ(s.score)}</span>
+                <span
+                  className={`max-w-full truncate border px-1 text-[9px] uppercase ${bucketBg(s.bucket)} ${bucketColor(s.bucket)}`}
+                  title={s.bucket}
+                >
+                  {s.bucket}
+                </span>
+              </span>
+            ))}
           </div>
-        );
-      })}
+        </div>
+      </div>
+
+      <div className="border-t border-term-border px-2 py-1.5 text-[10px] leading-snug text-term-dim">
+        score = z( 0.25·trend + 0.25·breadth + 0.20·vol + 0.20·credit + 0.10·curve ) — every leg is its own
+        z-score over the trailing 252 sessions; buckets: ≥ +1.25 strong risk-on · ≥ +0.40 risk-on ·
+        &gt; −0.40 neutral · &gt; −1.25 risk-off/caution · else crash-warning.
+      </div>
     </div>
   );
 }

@@ -31,6 +31,28 @@ export interface TerminalData {
   refreshLog: RefreshLogRow[]; // recent pipeline runs -- proof it's actually live
 }
 
+// PostgREST serializes `numeric` columns as JSON numbers, but be defensive: a
+// view column that arrives as a string would otherwise blow up `.toFixed()`.
+function num(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizePrice(raw: Record<string, unknown>): RawPriceRow {
+  return {
+    symbol: String(raw.symbol),
+    date: String(raw.date),
+    close: num(raw.close) ?? 0,
+    updated_at: String(raw.updated_at),
+    prev_close: num(raw.prev_close),
+    chg: num(raw.chg),
+    chg_pct: num(raw.chg_pct),
+    hi_52w: num(raw.hi_52w),
+    lo_52w: num(raw.lo_52w),
+  };
+}
+
 /**
  * Server-side fetch of everything the terminal needs for first paint.
  * Falls back to the bundled demo dataset whenever Supabase isn't configured
@@ -61,7 +83,7 @@ export async function getTerminalData(): Promise<TerminalData> {
       supabase.from("backtest_curves").select("*").order("month"),
       supabase.from("backtest_stats").select("*"),
       supabase.from("latest_prices").select("*").order("symbol"),
-      supabase.from("refresh_log").select("*").order("refreshed_at", { ascending: false }).limit(12),
+      supabase.from("refresh_log").select("*").order("refreshed_at", { ascending: false }).limit(40),
     ]);
 
     const anyError =
@@ -82,7 +104,7 @@ export async function getTerminalData(): Promise<TerminalData> {
       stats: (statRes.data ?? []) as BacktestStatRow[],
       // These two are supplementary (tracked-instruments list, pipeline health) --
       // a hiccup fetching them shouldn't blank the whole terminal, so default to [].
-      prices: (priceRes.data ?? []) as RawPriceRow[],
+      prices: ((priceRes.data ?? []) as Record<string, unknown>[]).map(normalizePrice),
       refreshLog: (logRes.data ?? []) as RefreshLogRow[],
     };
   } catch {

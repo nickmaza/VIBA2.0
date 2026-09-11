@@ -129,23 +129,38 @@ which runs elsewhere (see above).
 
 ## What the terminal shows
 
-- **Market Regime Monitor** — SPY/QQQ/IWM composite z-scores, each broken out
-  into its 5 weighted components (trend, breadth, volatility, credit, rate
-  curve) with the weight and current value shown per component — not just
-  the blended score.
-- **Tracked Instruments** — every one of the 19 symbols the pipeline reads,
-  grouped by role (3 regime indices, 5 regime inputs, 11 sector ETFs), with
-  each one's latest close and when it was last updated, sourced from the
-  `latest_prices` view.
-- **Pipeline Status** — the most recent pipeline runs from `refresh_log`
-  (ingest + both compute jobs), so you can see the automated refresh
-  actually happening, not just trust a badge.
+The UI is laid out like a desktop trading workstation: a menu bar with a
+green accent stripe, a dense three-column grid of titled "windows"
+(`components/Panel.tsx`), and a scrolling ticker strip pinned to the bottom.
+It collapses to one column on phones.
 
-All three (plus the existing sector ranking, backtest panel, and regime
-history chart) are wired to Supabase Realtime via `RealtimeRefresher` — any
-row written to `raw_prices`, `regime_snapshot`, `regime_history`,
+| Window | Column | What's in it |
+|---|---|---|
+| **Pipeline** | left | News-feed style log of every automated run from `refresh_log` (ingest + both compute jobs), newest first, with ok/failed dots |
+| **SPY / QQQ / IWM** quote cards | left | Last close + day change, 52-wk hi/lo and range position (from the `latest_prices` view), the composite regime z-score and bucket, and a 60-session sparkline |
+| **.REGIME SPY** / **.REGIME SPY-QQQ-IWM** | middle | Composite regime charts with 3M/6M/1Y/3Y/5Y/MAX range buttons, bucket threshold lines, drawdown-event shading, hover readout |
+| **Sector Momentum** | middle | Ranked bar chart of the risk-adjusted momentum score per sector |
+| **Backtest** | middle | Growth-of-$1 curves for the four strategies + CAGR / vol / Sharpe / max-DD table |
+| **Tracked Instruments** | middle | Positions-style table of all 19 symbols: role, fund name, what the math uses it for, last, change, 52-wk range, momentum rank/score/3-6-12M returns, last update |
+| **Regime Composite — Legs** | right | Multi-leg "ticket": the five weighted legs (trend, breadth, vol, credit, curve), what each reads, its weight, and its current z-score for every index side by side, plus the composite and bucket |
+| **Sector Rotation Ladder** | right | Option-chain style ladder of the 11 sectors: 3/6/12M returns, highlighted ticker column, score bar, rank; top-3 holdings shaded |
+| **Alerts** | right | Derived at render time: regime bucket state per index, bucket flips in the last 5 sessions, failed pipeline runs, stale-data warnings, current top-3 holdings |
+| **Message Center** | right | Data mode, as-of date, symbols reporting, last run of each pipeline stage, and a live countdown to the next `pg_cron` compute |
+
+Everything is wired to Supabase Realtime via `RealtimeRefresher` — any row
+written to `raw_prices`, `regime_snapshot`, `regime_history`,
 `sector_rankings`, or `refresh_log` triggers every open tab to refresh
-immediately, no polling.
+immediately, no polling. The `RT` badge in the menu bar shows the
+subscription state, how many change events have arrived, and when the last
+one landed.
+
+### Units, so nothing gets misread
+
+- Regime score and its five legs are **z-scores** (unitless, typically −3…+3).
+- Sector `r3` / `r6` / `r12` are stored as **percent** (`12.9` = +12.9%), the
+  same convention as `scripts/refresh.py`.
+- Sector `score` is unitless (blended momentum ÷ annualized vol).
+- `latest_prices.chg_pct` is percent; `chg` is in price units.
 
 ## What's actually being computed
 

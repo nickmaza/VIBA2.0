@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${plexMono.variable} ${plexSans.variable}`}>
-      <body className="bg-term-bg text-term-text font-mono antialiased">{children}</body>
+      <body className="bg-term-bg font-sans text-term-text antialiased">{children}</body>
     </html>
   );
 }

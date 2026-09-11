@@ -33,6 +33,41 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+// ---------- transient-failure retry ----------
+// The REST gateway occasionally answers a perfectly good request with an
+// instant 504 (observed on scheduled runs right at the top of the hour), and
+// the identical request succeeds a second later. Retry those with backoff;
+// real data errors (bad input, missing history) still fail immediately.
+// "JWT issued at future" is a cold-start clock-skew rejection from PostgREST
+// that clears within seconds, so it is treated as transient too.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function isTransient(msg: string): boolean {
+  return /timeout|gateway|\b50[234]\b|fetch failed|network|connection|ECONNRESET|EPIPE|issued at future|jwt/i.test(msg);
+}
+async function withRetry<T>(
+  label: string,
+  fn: () => PromiseLike<{ data: T | null; error: { message: string } | null }>,
+  attempts = 4,
+): Promise<T | null> {
+  let lastMsg = "";
+  for (let i = 0; i < attempts; i++) {
+    let res: { data: T | null; error: { message: string } | null };
+    try {
+      res = await fn();
+    } catch (e) {
+      lastMsg = e instanceof Error ? e.message : String(e);
+      if (!isTransient(lastMsg)) throw new Error(`${label}: ${lastMsg}`);
+      await sleep(800 * (i + 1));
+      continue;
+    }
+    if (!res.error) return res.data;
+    lastMsg = res.error.message;
+    if (!isTransient(lastMsg)) throw new Error(`${label}: ${lastMsg}`);
+    await sleep(800 * (i + 1));
+  }
+  throw new Error(`${label}: ${lastMsg} (gave up after ${attempts} attempts)`);
+}
+
 function stddev(x: number[]): number {
   const mean = x.reduce((a, b) => a + b, 0) / x.length;
   const variance = x.reduce((a, b) => a + (b - mean) * (b - mean), 0) / x.length;
@@ -52,13 +87,14 @@ Deno.serve(async (req: Request) => {
     const bySymbol = new Map<string, { date: string; close: number }[]>();
     for (const t of tickers) bySymbol.set(t, []);
     for (const t of tickers) {
-      const { data: rows, error: fetchErr } = await supabase
-        .from("raw_prices")
-        .select("date,close")
-        .eq("symbol", t)
-        .order("date", { ascending: true })
-        .range(0, 9999);
-      if (fetchErr) throw new Error(`raw_prices read failed for ${t}: ${fetchErr.message}`);
+      const rows = await withRetry(`raw_prices read failed for ${t}`, () =>
+        supabase
+          .from("raw_prices")
+          .select("date,close")
+          .eq("symbol", t)
+          .order("date", { ascending: true })
+          .range(0, 9999)
+      );
       if (!rows || rows.length === 0) throw new Error(`no raw_prices data found for ${t}`);
       const arr = bySymbol.get(t)!;
       for (const r of rows as { date: string; close: number }[]) {
@@ -113,9 +149,10 @@ Deno.serve(async (req: Request) => {
         ticker: t,
         name: SECTORS[t],
         score: Math.round(score * 10000) / 10000,
-        r3: Math.round(r3 * 10000) / 10000,
-        r6: Math.round(r6 * 10000) / 10000,
-        r12: Math.round(r12 * 10000) / 10000,
+        // stored as percent (12.9 = +12.9%), matching scripts/refresh.py and the UI
+        r3: Math.round(r3 * 10000) / 100,
+        r6: Math.round(r6 * 10000) / 100,
+        r12: Math.round(r12 * 10000) / 100,
         as_of: asOf,
       });
     }
@@ -127,26 +164,29 @@ Deno.serve(async (req: Request) => {
     computed.sort((a, b) => b.score - a.score);
     const ranked = computed.map((r, i) => ({ ...r, rank: i + 1, as_of: latestAsOf }));
 
-    const { error: upErr } = await supabase.from("sector_rankings").upsert(
-      ranked.map((r) => ({
-        ticker: r.ticker,
-        rank: r.rank,
-        name: r.name,
-        score: r.score,
-        r3: r.r3,
-        r6: r.r6,
-        r12: r.r12,
-        as_of: r.as_of,
-      })),
-      { onConflict: "ticker" },
+    await withRetry("sector_rankings upsert failed", () =>
+      supabase.from("sector_rankings").upsert(
+        ranked.map((r) => ({
+          ticker: r.ticker,
+          rank: r.rank,
+          name: r.name,
+          score: r.score,
+          r3: r.r3,
+          r6: r.r6,
+          r12: r.r12,
+          as_of: r.as_of,
+        })),
+        { onConflict: "ticker" },
+      )
     );
-    if (upErr) throw new Error(`sector_rankings upsert failed: ${upErr.message}`);
 
-    await supabase.from("refresh_log").insert({
-      source: "compute-sector-rotation",
-      ok: true,
-      note: `as_of=${latestAsOf} ranked=${ranked.length}${skipped.length ? ` skipped=[${skipped.join("; ")}]` : ""}`,
-    });
+    await withRetry("refresh_log insert failed", () =>
+      supabase.from("refresh_log").insert({
+        source: "compute-sector-rotation",
+        ok: true,
+        note: `as_of=${latestAsOf} ranked=${ranked.length}${skipped.length ? ` skipped=[${skipped.join("; ")}]` : ""}`,
+      })
+    ).catch(() => {}); // logging must never fail the run
 
     return new Response(
       JSON.stringify({ ok: true, as_of: latestAsOf, ranked, skipped }),
@@ -154,7 +194,9 @@ Deno.serve(async (req: Request) => {
     );
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await supabase.from("refresh_log").insert({ source: "compute-sector-rotation", ok: false, note: message });
+    await withRetry("refresh_log insert failed", () =>
+      supabase.from("refresh_log").insert({ source: "compute-sector-rotation", ok: false, note: message })
+    ).catch(() => {});
     return new Response(JSON.stringify({ ok: false, error: message }), { status: 500 });
   }
 });

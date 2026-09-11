@@ -4,10 +4,10 @@ import { useMemo, useRef, useState } from "react";
 import type { BacktestCurvePointRow, BacktestStatRow } from "@/lib/types";
 
 const SERIES: { key: BacktestCurvePointRow["strategy"]; label: string; color: string }[] = [
-  { key: "baseline", label: "Equal-weight (baseline)", color: "#39cccc" },
-  { key: "top3", label: "Top-3 momentum", color: "#ff9d2e" },
-  { key: "dual", label: "Top-3 + regime filter", color: "#2ecc40" },
-  { key: "bottom3", label: "Bottom-3 (sanity check)", color: "#ffd93d" },
+  { key: "baseline", label: "Equal-weight (baseline)", color: "#4fb3e8" },
+  { key: "top3", label: "Top-3 momentum", color: "#f5d033" },
+  { key: "dual", label: "Top-3 + regime filter", color: "#3fbf4a" },
+  { key: "bottom3", label: "Bottom-3 (sanity check)", color: "#e078d0" },
 ];
 
 const W = 460,
@@ -84,7 +84,7 @@ export default function BacktestPanel({
   }
 
   return (
-    <div className="border border-term-border bg-term-panel p-3">
+    <div className="p-2">
       <div
         ref={wrapRef}
         className="relative"
@@ -96,8 +96,8 @@ export default function BacktestPanel({
             const y = yAt(g);
             return (
               <g key={g}>
-                <line x1={ML} y1={y} x2={W - MR} y2={y} stroke="#2a2a28" strokeWidth={1} />
-                <text x={ML - 6} y={y + 3} textAnchor="end" fontSize={9.5} fill="#87867e">
+                <line x1={ML} y1={y} x2={W - MR} y2={y} stroke="#333333" strokeWidth={1} />
+                <text x={ML - 6} y={y + 3} textAnchor="end" fontSize={9.5} fill="#9c9c9c">
                   ${g}
                 </text>
               </g>
@@ -119,12 +119,12 @@ export default function BacktestPanel({
             );
           })}
           {yearTicks.map((t) => (
-            <text key={t.label} x={t.x} y={H - 6} fontSize={9.5} fill="#87867e">
+            <text key={t.label} x={t.x} y={H - 6} fontSize={9.5} fill="#9c9c9c">
               {t.label}
             </text>
           ))}
           {hover !== null && (
-            <line x1={xAt(hover)} y1={MT} x2={xAt(hover)} y2={MT + plotH} stroke="#3d3d3a" strokeWidth={1} />
+            <line x1={xAt(hover)} y1={MT} x2={xAt(hover)} y2={MT + plotH} stroke="#5a5a5a" strokeWidth={1} />
           )}
           {hover !== null &&
             SERIES.map((s) => {

@@ -95,16 +95,38 @@ create policy "public read" on backtest_curves for select using (true);
 create policy "public read" on backtest_stats for select using (true);
 create policy "public read" on refresh_log for select using (true);
 
--- One row per tracked symbol (latest close on file) -- lets the UI show
--- "everything we're tracking" cheaply, without ever downloading full
--- multi-year price histories to the browser. Views don't automatically
--- inherit RLS grants from their base tables, so anon/authenticated need an
--- explicit GRANT even though raw_prices itself is already public-read.
+-- One row per tracked symbol (latest close on file), plus what a quote window
+-- needs: previous close, day change (abs + %), and the trailing-52-week
+-- (252-session) high/low. Lets the UI show "everything we're tracking"
+-- cheaply, without ever downloading full multi-year price histories to the
+-- browser. Views don't automatically inherit RLS grants from their base
+-- tables, so anon/authenticated need an explicit GRANT even though
+-- raw_prices itself is already public-read.
 create or replace view latest_prices
 with (security_invoker = true) as
-select distinct on (symbol) symbol, date, close, updated_at
-from raw_prices
-order by symbol, date desc;
+select
+  symbol,
+  date,
+  close,
+  updated_at,
+  prev_close,
+  case when prev_close is null then null else close - prev_close end as chg,
+  case when prev_close is null or prev_close = 0 then null else (close / prev_close - 1.0) * 100.0 end as chg_pct,
+  hi_52w,
+  lo_52w
+from (
+  select
+    symbol,
+    date,
+    close,
+    updated_at,
+    lag(close) over (partition by symbol order by date) as prev_close,
+    max(close) over (partition by symbol order by date rows between 251 preceding and current row) as hi_52w,
+    min(close) over (partition by symbol order by date rows between 251 preceding and current row) as lo_52w,
+    row_number() over (partition by symbol order by date desc) as rn
+  from raw_prices
+) t
+where rn = 1;
 
 grant select on latest_prices to anon, authenticated;
 
