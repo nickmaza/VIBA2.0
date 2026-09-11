@@ -11,6 +11,29 @@ export interface RegimeSnapshotRow {
   bucket: Bucket;
   as_of: string; // ISO date
   updated_at: string; // ISO timestamp
+  // The five weighted inputs that blend into `score` above (each its own
+  // rolling 252-day z-score) -- exposed so the UI can show exactly what's
+  // being tracked, not just the final composite.
+  z_trend: number | null;
+  z_breadth: number | null;
+  z_vol: number | null;
+  z_credit: number | null;
+  z_curve: number | null;
+}
+
+export interface RawPriceRow {
+  symbol: string;
+  date: string; // ISO date, latest close on file for this symbol
+  close: number;
+  updated_at: string; // ISO timestamp, when this row was last written
+}
+
+export interface RefreshLogRow {
+  id: number;
+  refreshed_at: string; // ISO timestamp
+  source: string;
+  ok: boolean;
+  note: string | null;
 }
 
 export interface RegimeHistoryRow {

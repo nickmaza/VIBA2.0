@@ -127,6 +127,26 @@ deploy — `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The
 service role key never goes to Vercel — it's only used by the refresh job,
 which runs elsewhere (see above).
 
+## What the terminal shows
+
+- **Market Regime Monitor** — SPY/QQQ/IWM composite z-scores, each broken out
+  into its 5 weighted components (trend, breadth, volatility, credit, rate
+  curve) with the weight and current value shown per component — not just
+  the blended score.
+- **Tracked Instruments** — every one of the 19 symbols the pipeline reads,
+  grouped by role (3 regime indices, 5 regime inputs, 11 sector ETFs), with
+  each one's latest close and when it was last updated, sourced from the
+  `latest_prices` view.
+- **Pipeline Status** — the most recent pipeline runs from `refresh_log`
+  (ingest + both compute jobs), so you can see the automated refresh
+  actually happening, not just trust a badge.
+
+All three (plus the existing sector ranking, backtest panel, and regime
+history chart) are wired to Supabase Realtime via `RealtimeRefresher` — any
+row written to `raw_prices`, `regime_snapshot`, `regime_history`,
+`sector_rankings`, or `refresh_log` triggers every open tab to refresh
+immediately, no polling.
+
 ## What's actually being computed
 
 Full methodology (the five regime components, the sector momentum formula,

@@ -24,7 +24,16 @@ create table if not exists regime_snapshot (
   score numeric not null,
   bucket text not null,
   as_of date not null,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- The five weighted inputs that blend into `score` (each its own rolling
+  -- 252-day z-score) -- exposed so the UI can show exactly what's being
+  -- tracked, not just the final composite. Nullable so older rows written
+  -- before this column existed don't break the upsert.
+  z_trend numeric,
+  z_breadth numeric,
+  z_vol numeric,
+  z_credit numeric,
+  z_curve numeric
 );
 
 create table if not exists regime_history (
@@ -86,10 +95,27 @@ create policy "public read" on backtest_curves for select using (true);
 create policy "public read" on backtest_stats for select using (true);
 create policy "public read" on refresh_log for select using (true);
 
--- Enable Realtime so the terminal updates live without polling.
+-- One row per tracked symbol (latest close on file) -- lets the UI show
+-- "everything we're tracking" cheaply, without ever downloading full
+-- multi-year price histories to the browser. Views don't automatically
+-- inherit RLS grants from their base tables, so anon/authenticated need an
+-- explicit GRANT even though raw_prices itself is already public-read.
+create or replace view latest_prices
+with (security_invoker = true) as
+select distinct on (symbol) symbol, date, close, updated_at
+from raw_prices
+order by symbol, date desc;
+
+grant select on latest_prices to anon, authenticated;
+
+-- Enable Realtime so the terminal updates live without polling. raw_prices +
+-- refresh_log feed the "Tracked Instruments" / "Pipeline Status" panels, so
+-- those are live too, not just the score/ranking tables.
 alter publication supabase_realtime add table regime_snapshot;
 alter publication supabase_realtime add table sector_rankings;
 alter publication supabase_realtime add table regime_history;
+alter publication supabase_realtime add table raw_prices;
+alter publication supabase_realtime add table refresh_log;
 
 -- ---------------------------------------------------------------------------
 -- pg_cron + pg_net: run the two compute Edge Functions natively inside

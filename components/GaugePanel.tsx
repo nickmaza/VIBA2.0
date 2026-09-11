@@ -44,6 +44,40 @@ const SPARK_COLOR: Record<string, string> = {
   "text-term-red": "#ff4136",
 };
 
+// The five inputs blended into the composite score above, and the weight each
+// carries -- shown per-index so it's transparent exactly what's being tracked,
+// not just the final blended number. z_breadth/z_vol/z_credit/z_curve are
+// market-wide (identical across SPY/QQQ/IWM); z_trend is index-specific.
+const COMPONENTS: {
+  key: "z_trend" | "z_breadth" | "z_vol" | "z_credit" | "z_curve";
+  label: string;
+  weight: string;
+}[] = [
+  { key: "z_trend", label: "Trend · 50/200dma", weight: "25%" },
+  { key: "z_breadth", label: "Breadth · RSP/SPY", weight: "25%" },
+  { key: "z_vol", label: "Volatility · VIXY", weight: "20%" },
+  { key: "z_credit", label: "Credit · HYG/IEF", weight: "20%" },
+  { key: "z_curve", label: "Rate curve · IEF/SHY", weight: "10%" },
+];
+
+function ComponentBar({ value }: { value: number | null | undefined }) {
+  if (value == null || !Number.isFinite(value)) {
+    return <span className="relative block h-1.5 w-full bg-[#1a1a18]" />;
+  }
+  const clamped = Math.max(-3, Math.min(3, value));
+  const pct = (Math.abs(clamped) / 3) * 50;
+  const pos = clamped >= 0;
+  return (
+    <span className="relative block h-1.5 w-full bg-[#1a1a18]">
+      <span
+        className={`absolute top-0 bottom-0 ${pos ? "bg-term-green" : "bg-term-red"}`}
+        style={pos ? { left: "50%", width: `${pct}%` } : { right: "50%", width: `${pct}%` }}
+      />
+      <span className="absolute top-0 bottom-0 left-1/2 w-px bg-term-border" />
+    </span>
+  );
+}
+
 export default function GaugePanel({
   snapshot,
   history,
@@ -84,6 +118,34 @@ export default function GaugePanel({
               <Sparkline values={values} color={SPARK_COLOR[color]} />
             )}
             <div className="mt-1 text-[10.5px] text-term-dim">13-wk trend · weekly close</div>
+
+            <div className="mt-3 space-y-1.5 border-t border-term-border/60 pt-2.5">
+              {COMPONENTS.map((c) => {
+                const v = s[c.key];
+                return (
+                  <div
+                    key={c.key}
+                    className="grid grid-cols-[1fr_56px_40px] items-center gap-2 text-[10.5px]"
+                  >
+                    <span className="text-term-dim">
+                      {c.label} <span className="text-term-dim/70">({c.weight})</span>
+                    </span>
+                    <ComponentBar value={v} />
+                    <span
+                      className={`text-right tabular-nums ${
+                        v == null || !Number.isFinite(v)
+                          ? "text-term-dim"
+                          : v >= 0
+                          ? "text-term-green"
+                          : "text-term-red"
+                      }`}
+                    >
+                      {v == null || !Number.isFinite(v) ? "n/a" : (v >= 0 ? "+" : "") + v.toFixed(2)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}

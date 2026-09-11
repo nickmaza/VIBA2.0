@@ -6,6 +6,8 @@ import GaugePanel from "@/components/GaugePanel";
 import RegimeChart from "@/components/RegimeChart";
 import SectorPanel from "@/components/SectorPanel";
 import BacktestPanel from "@/components/BacktestPanel";
+import TrackedInstruments from "@/components/TrackedInstruments";
+import PipelineStatus from "@/components/PipelineStatus";
 import RealtimeRefresher from "@/components/RealtimeRefresher";
 
 export const revalidate = 0;
@@ -49,7 +51,7 @@ export default async function Home() {
         <section>
           <PanelHeader
             title="Market Regime Monitor"
-            sub="Composite z-score · trend + breadth + vol + credit + curve"
+            sub="Composite z-score, broken out into its 5 weighted components"
           />
           <GaugePanel snapshot={data.snapshot} history={data.history} />
         </section>
@@ -67,6 +69,20 @@ export default async function Home() {
           <div>
             <PanelHeader title="Sector Rotation — Backtest" sub="growth of $1 · monthly rebal" />
             <BacktestPanel curves={data.curves} stats={data.stats} />
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <div>
+            <PanelHeader
+              title="Tracked Instruments"
+              sub={`all ${data.prices.length || 19} symbols the pipeline reads`}
+            />
+            <TrackedInstruments prices={data.prices} />
+          </div>
+          <div>
+            <PanelHeader title="Pipeline Status" sub="last 12 refresh runs, live" />
+            <PipelineStatus log={data.refreshLog} />
           </div>
         </section>
 
