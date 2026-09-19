@@ -7,6 +7,8 @@ import {
   demoStats,
   demoPrices,
   demoRefreshLog,
+  demoRotation,
+  demoSetups,
   DEMO_AS_OF,
 } from "./demo-data";
 import type {
@@ -17,6 +19,8 @@ import type {
   BacktestStatRow,
   RawPriceRow,
   RefreshLogRow,
+  RotationStrengthRow,
+  TradeSetupRow,
 } from "./types";
 
 export interface TerminalData {
@@ -29,6 +33,8 @@ export interface TerminalData {
   stats: BacktestStatRow[];
   prices: RawPriceRow[]; // latest close per tracked symbol -- "everything we're tracking"
   refreshLog: RefreshLogRow[]; // recent pipeline runs -- proof it's actually live
+  rotation: RotationStrengthRow[]; // daily rotation-strength series, oldest first
+  setups: TradeSetupRow[]; // current candidate longs with entry/stop/targets
 }
 
 // PostgREST serializes `numeric` columns as JSON numbers, but be defensive: a
@@ -53,6 +59,54 @@ function normalizePrice(raw: Record<string, unknown>): RawPriceRow {
   };
 }
 
+function normalizeRotation(raw: Record<string, unknown>): RotationStrengthRow {
+  return {
+    d: String(raw.d),
+    dispersion: num(raw.dispersion) ?? 0,
+    spread: num(raw.spread) ?? 0,
+    persistence: num(raw.persistence) ?? 0,
+    strength: num(raw.strength) ?? 0,
+    state: String(raw.state ?? "weak"),
+    leaders: raw.leaders == null ? null : String(raw.leaders),
+    laggards: raw.laggards == null ? null : String(raw.laggards),
+  };
+}
+
+function normalizeSetup(raw: Record<string, unknown>): TradeSetupRow {
+  return {
+    symbol: String(raw.symbol),
+    name: String(raw.name ?? raw.symbol),
+    kind: String(raw.kind ?? "stock"),
+    sector_etf: raw.sector_etf == null ? null : String(raw.sector_etf),
+    sector_name: raw.sector_name == null ? null : String(raw.sector_name),
+    sector_rank: num(raw.sector_rank),
+    score: num(raw.score) ?? 0,
+    strength: num(raw.strength) ?? 0,
+    close: num(raw.close) ?? 0,
+    atr: num(raw.atr) ?? 0,
+    atr_pct: num(raw.atr_pct) ?? 0,
+    entry: num(raw.entry) ?? 0,
+    buy_zone_low: num(raw.buy_zone_low) ?? 0,
+    stop: num(raw.stop) ?? 0,
+    t1: num(raw.t1) ?? 0,
+    t2: num(raw.t2) ?? 0,
+    risk_per_share: num(raw.risk_per_share) ?? 0,
+    risk_pct: num(raw.risk_pct),
+    rr1: num(raw.rr1) ?? 0,
+    rr2: num(raw.rr2) ?? 0,
+    t1_atr: num(raw.t1_atr),
+    t2_atr: num(raw.t2_atr),
+    ext_pct: num(raw.ext_pct),
+    trend_ok: Boolean(raw.trend_ok),
+    atr_true: Boolean(raw.atr_true),
+    r3: num(raw.r3),
+    r6: num(raw.r6),
+    r12: num(raw.r12),
+    as_of: String(raw.as_of),
+    note: raw.note == null ? null : String(raw.note),
+  };
+}
+
 /**
  * Server-side fetch of everything the terminal needs for first paint.
  * Falls back to the bundled demo dataset whenever Supabase isn't configured
@@ -69,6 +123,8 @@ export async function getTerminalData(): Promise<TerminalData> {
     stats: demoStats,
     prices: demoPrices,
     refreshLog: demoRefreshLog,
+    rotation: demoRotation,
+    setups: demoSetups,
   };
 
   if (!hasSupabase || !supabase) {
@@ -76,7 +132,8 @@ export async function getTerminalData(): Promise<TerminalData> {
   }
 
   try {
-    const [snapRes, histRes, secRes, curveRes, statRes, priceRes, logRes] = await Promise.all([
+    const [snapRes, histRes, secRes, curveRes, statRes, priceRes, logRes, rotRes, setupRes] =
+      await Promise.all([
       supabase.from("regime_snapshot").select("*").order("index_symbol"),
       supabase.from("regime_history").select("*").order("d"),
       supabase.from("sector_rankings").select("*").order("rank"),
@@ -84,6 +141,8 @@ export async function getTerminalData(): Promise<TerminalData> {
       supabase.from("backtest_stats").select("*"),
       supabase.from("latest_prices").select("*").order("symbol"),
       supabase.from("refresh_log").select("*").order("refreshed_at", { ascending: false }).limit(40),
+      supabase.from("rotation_strength").select("*").order("d"),
+      supabase.from("trade_setups").select("*").order("strength", { ascending: false }),
     ]);
 
     const anyError =
@@ -106,6 +165,8 @@ export async function getTerminalData(): Promise<TerminalData> {
       // a hiccup fetching them shouldn't blank the whole terminal, so default to [].
       prices: ((priceRes.data ?? []) as Record<string, unknown>[]).map(normalizePrice),
       refreshLog: (logRes.data ?? []) as RefreshLogRow[],
+      rotation: ((rotRes.data ?? []) as Record<string, unknown>[]).map(normalizeRotation),
+      setups: ((setupRes.data ?? []) as Record<string, unknown>[]).map(normalizeSetup),
     };
   } catch {
     return demoFallback;

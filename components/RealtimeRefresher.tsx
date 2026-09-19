@@ -40,7 +40,10 @@ export default function RealtimeRefresher() {
       router.refresh();
     };
 
-    const tables = ["regime_snapshot", "sector_rankings", "regime_history", "raw_prices", "refresh_log"];
+    const tables = [
+      "regime_snapshot", "sector_rankings", "regime_history", "raw_prices",
+      "refresh_log", "rotation_strength", "trade_setups",
+    ];
     let channel = supabase.channel("terminal-refresh");
     for (const table of tables) {
       channel = channel.on("postgres_changes", { event: "*", schema: "public", table }, onChange);
@@ -74,7 +77,7 @@ export default function RealtimeRefresher() {
       : "RT OFF";
 
   return (
-    <span className="flex items-center gap-1.5 text-[11px]" title="Supabase Realtime: postgres_changes on 5 tables">
+    <span className="flex items-center gap-1.5 text-[11px]" title="Supabase Realtime: postgres_changes on 7 tables">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       <span className={status === "live" ? "text-term-green" : "text-term-dim"}>{label}</span>
       {status === "live" && (

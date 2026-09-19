@@ -5,6 +5,8 @@ import RealtimeRefresher from "@/components/RealtimeRefresher";
 const MENU = [
   { label: "Regime", href: "#regime" },
   { label: "Charts", href: "#charts" },
+  { label: "Rotation", href: "#rotation" },
+  { label: "Plays", href: "#plays" },
   { label: "Sectors", href: "#sectors" },
   { label: "Instruments", href: "#instruments" },
   { label: "Pipeline", href: "#pipeline" },

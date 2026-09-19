@@ -1,10 +1,16 @@
 // ingest-prices
 //
-// Receives raw daily OHLCV close prices (pushed by the scheduled Robinhood-fetch
-// task, since Edge Functions can't reach the Robinhood MCP connector themselves)
-// and upserts them into raw_prices. This is the "data fetching / saving" entry
-// point for the pipeline: it does not compute anything, it just stores clean,
-// validated closes for the compute-* functions to read.
+// Receives daily OHLCV bars (pushed by the scheduled Robinhood-fetch task,
+// since Edge Functions can't reach the Robinhood MCP connector themselves)
+// and upserts them into raw_prices. This is the "data fetching / saving"
+// entry point for the pipeline: it does not compute anything, it just stores
+// clean, validated bars for the compute-* functions to read.
+//
+// close is required. open/high/low/volume are optional so the long
+// close-only history stays ingestible, but senders should include high and
+// low whenever they have them -- compute-trade-setups needs a real high/low
+// to compute true range, and silently falls back to a cruder close-to-close
+// proxy when they're missing.
 //
 // Auth: custom shared-secret header (x-refresh-secret), not Supabase JWT --
 // this endpoint performs writes and is called by an automated job, not a
@@ -19,20 +25,50 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-type PriceRow = { symbol: string; date: string; close: number };
+type PriceRow = {
+  symbol: string;
+  date: string;
+  close: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  volume?: number;
+};
 
-function isValidRow(p: unknown): p is PriceRow {
-  if (typeof p !== "object" || p === null) return false;
+/** Optional numeric field: absent/null is fine, present-but-garbage is not. */
+function optNum(v: unknown, opts: { positive?: boolean } = {}): number | null | undefined {
+  if (v === undefined || v === null || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return undefined; // signals "invalid"
+  if (opts.positive && n < 0) return undefined;
+  return n;
+}
+
+function parseRow(p: unknown): PriceRow | null {
+  if (typeof p !== "object" || p === null) return null;
   const row = p as Record<string, unknown>;
-  return (
-    typeof row.symbol === "string" &&
-    row.symbol.length > 0 &&
-    typeof row.date === "string" &&
-    /^\d{4}-\d{2}-\d{2}$/.test(row.date) &&
-    typeof row.close === "number" &&
-    Number.isFinite(row.close) &&
-    row.close > 0
-  );
+  if (typeof row.symbol !== "string" || row.symbol.length === 0) return null;
+  if (typeof row.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) return null;
+
+  const close = typeof row.close === "number" ? row.close : Number(row.close);
+  if (!Number.isFinite(close) || close <= 0) return null;
+
+  const open = optNum(row.open, { positive: true });
+  const high = optNum(row.high, { positive: true });
+  const low = optNum(row.low, { positive: true });
+  const volume = optNum(row.volume, { positive: true });
+  if (open === undefined || high === undefined || low === undefined || volume === undefined) return null;
+
+  // A high below its own low is corrupt data, not a rounding artifact -- drop
+  // the bar rather than let it poison an ATR.
+  if (high !== null && low !== null && high < low) return null;
+
+  const out: PriceRow = { symbol: row.symbol.toUpperCase().trim(), date: row.date, close };
+  if (open !== null) out.open = open;
+  if (high !== null) out.high = high;
+  if (low !== null) out.low = low;
+  if (volume !== null) out.volume = Math.round(volume);
+  return out;
 }
 
 Deno.serve(async (req: Request) => {
@@ -58,18 +94,19 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const bad: unknown[] = [];
+  let rejected = 0;
   const good: PriceRow[] = [];
   for (const p of prices) {
-    if (isValidRow(p)) good.push(p);
-    else bad.push(p);
+    const row = parseRow(p);
+    if (row) good.push(row);
+    else rejected++;
   }
 
   if (good.length === 0) {
-    return new Response(JSON.stringify({ error: "no valid rows", rejected: bad.length }), {
-      status: 400,
-    });
+    return new Response(JSON.stringify({ error: "no valid rows", rejected }), { status: 400 });
   }
+
+  const withHL = good.filter((r) => r.high !== undefined && r.low !== undefined).length;
 
   // upsert in chunks to stay well under any single-request payload/row limits
   const CHUNK = 2000;
@@ -88,8 +125,9 @@ Deno.serve(async (req: Request) => {
     upserted += chunk.length;
   }
 
+  const symbols = new Set(good.map((r) => r.symbol)).size;
   return new Response(
-    JSON.stringify({ ok: true, upserted, rejected: bad.length }),
+    JSON.stringify({ ok: true, upserted, symbols, with_high_low: withHL, rejected }),
     { headers: { "Content-Type": "application/json" } },
   );
 });

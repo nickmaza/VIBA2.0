@@ -10,6 +10,8 @@ import SectorPanel from "@/components/SectorPanel";
 import SectorChart from "@/components/SectorChart";
 import BacktestPanel from "@/components/BacktestPanel";
 import TrackedInstruments from "@/components/TrackedInstruments";
+import TradeSetups from "@/components/TradeSetups";
+import RotationStrength from "@/components/RotationStrength";
 import PipelineStatus from "@/components/PipelineStatus";
 import AlertsPanel, { deriveAlerts } from "@/components/AlertsPanel";
 import MessageCenter from "@/components/MessageCenter";
@@ -138,6 +140,20 @@ export default async function Home() {
           </div>
 
           <Panel
+            id="plays"
+            title="Rotation Plays — Entry / Stop / Targets"
+            controls={
+              <>
+                <Chip active>{data.setups.length} candidates</Chip>
+                <Chip>long only</Chip>
+                <Chip>trade_setups</Chip>
+              </>
+            }
+          >
+            <TradeSetups setups={data.setups} rotation={data.rotation} />
+          </Panel>
+
+          <Panel
             id="instruments"
             title="Tracked Instruments"
             controls={
@@ -167,6 +183,21 @@ export default async function Home() {
             controls={<Chip>regime_snapshot</Chip>}
           >
             <GaugePanel snapshot={data.snapshot} />
+          </Panel>
+
+          <Panel
+            id="rotation"
+            title="Rotation Strength"
+            controls={
+              <>
+                <Chip active>
+                  {data.rotation.length ? data.rotation[data.rotation.length - 1].state : "n/a"}
+                </Chip>
+                <Chip>0-100</Chip>
+              </>
+            }
+          >
+            <RotationStrength rows={data.rotation} />
           </Panel>
 
           <Panel

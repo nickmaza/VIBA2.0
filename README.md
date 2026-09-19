@@ -22,11 +22,13 @@ demo data.
 ## 2. Connect Supabase
 
 1. Create a project at supabase.com (or use one you already have).
-2. In the SQL editor, run `supabase/schema.sql` — it creates five tables
-   (`regime_snapshot`, `regime_history`, `sector_rankings`, `backtest_curves`,
-   `backtest_stats`, `refresh_log`), turns on Row Level Security with a
-   public-read-only policy, and adds the first three tables to the Realtime
-   publication so the terminal updates live with no polling.
+2. In the SQL editor, run `supabase/schema.sql` — it creates the tables
+   (`raw_prices`, `symbol_meta`, `regime_snapshot`, `regime_history`,
+   `sector_rankings`, `rotation_strength`, `trade_setups`, `backtest_curves`,
+   `backtest_stats`, `refresh_log`) plus the `latest_prices` view, turns on
+   Row Level Security with a public-read-only policy, adds the live tables to
+   the Realtime publication so the terminal updates with no polling, and
+   registers the `pg_cron` jobs.
 3. Copy `.env.local.example` to `.env.local` and fill in your project's URL
    and anon key (Project Settings → API).
 4. Restart `npm run dev` — the badge should flip to `LIVE — SUPABASE` once
@@ -37,7 +39,7 @@ Nothing in the deployed site can write to your database.
 
 ## 3. Populate it — the refresh pipeline
 
-**The math runs entirely inside Supabase now**, as three Edge Functions in
+**The math runs entirely inside Supabase now**, as four Edge Functions in
 `supabase/functions/` (TypeScript/Deno ports of the original Python
 formulas), triggered on a schedule by Postgres itself (`pg_cron` + `pg_net`
 — see the bottom of `supabase/schema.sql`). Nothing needs to stay open —
@@ -49,8 +51,9 @@ keep refreshing during market hours.
 | `ingest-prices` | request body | `raw_prices` | called by the scheduled ingest task (below) |
 | `compute-regime-score` | `raw_prices` | `regime_snapshot`, `regime_history` | `pg_cron`, hourly (market hours) |
 | `compute-sector-rotation` | `raw_prices` | `sector_rankings` | `pg_cron`, hourly (market hours) |
+| `compute-trade-setups` | `raw_prices`, `symbol_meta` | `rotation_strength`, `trade_setups` | `pg_cron`, hourly (market hours) |
 
-All three write with the **service role key** (`SUPABASE_SERVICE_ROLE_KEY`,
+All four write with the **service role key** (`SUPABASE_SERVICE_ROLE_KEY`,
 auto-injected into every Edge Function's environment by Supabase — never
 exposed to the browser) and authenticate write requests with a shared-secret
 header (`x-refresh-secret`) instead of a Supabase JWT, since the caller is
@@ -61,15 +64,19 @@ dashboard:
 supabase functions deploy ingest-prices
 supabase functions deploy compute-regime-score
 supabase functions deploy compute-sector-rotation
+supabase functions deploy compute-trade-setups
 ```
 
 **The one piece that still needs an external actor: getting Robinhood data
-in.** `raw_prices` (fresh daily closes for the 19 tickers) is the only input
+in.** `raw_prices` (fresh daily bars for every symbol in `symbol_meta` — the
+19 ETFs plus the ~66 stocks tracked inside the sectors) is the only input
 these functions can't produce themselves — Edge Functions can't authenticate
 to a personal Robinhood session. In this deployment that gap is filled by a
 scheduled Claude task (a "Routine") that wakes up hourly during market hours,
-pulls fresh closes via the Robinhood MCP connector, and calls
-`ingest-prices` with them. That task does **no computation** — it's a thin
+reads the symbol list out of `symbol_meta`, pulls fresh OHLCV bars via the
+Robinhood MCP connector, and calls `ingest-prices` with them. It skips bars
+flagged `interpolated` (synthetic gap-fill for the not-yet-complete session),
+which would otherwise write flat fake bars and corrupt ATR. That task does **no computation** — it's a thin
 data-delivery step; every actual formula lives in the Edge Functions above.
 If you'd rather not depend on a scheduled Claude task at all, point any
 process you control (a small cron job, a Polygon/Alpaca/IEX-backed script,
@@ -80,7 +87,11 @@ POST https://<project-ref>.supabase.co/functions/v1/ingest-prices
 Content-Type: application/json
 x-refresh-secret: <your REFRESH_SECRET>
 
-{"prices": [{"symbol": "SPY", "date": "2026-09-08", "close": 765.96}, ...]}
+{"prices": [{"symbol":"SPY","date":"2026-09-16","open":761.2,"high":766.4,"low":759.8,"close":765.96,"volume":58231044}, ...]}
+
+`close` is required; `open`/`high`/`low`/`volume` are optional, but send high
+and low when you have them — true range (and therefore every stop and target)
+degrades to a close-only proxy without them.
 ```
 
 ### A note on outbound HTTPS from a sandboxed caller
@@ -91,8 +102,8 @@ environment (as the scheduled Claude task does), a direct HTTPS request to
 the Edge Function's HTTPS URL directly — instead run `select net.http_post(...)`
 through the **Supabase SQL/MCP connection itself**, so Postgres's own server
 (which has unrestricted egress) makes the HTTP call on the caller's behalf.
-This is also exactly how the `pg_cron` jobs invoke `compute-regime-score` and
-`compute-sector-rotation` — see `supabase/schema.sql` for the exact
+This is also exactly how the `pg_cron` jobs invoke the three compute
+functions — see `supabase/schema.sql` for the exact
 `net.http_post(...)` calls both paths use.
 
 ### Refresh cadence — set expectations honestly
@@ -141,10 +152,12 @@ It collapses to one column on phones.
 | **.REGIME SPY** / **.REGIME SPY-QQQ-IWM** | middle | Composite regime charts with 3M/6M/1Y/3Y/5Y/MAX range buttons, bucket threshold lines, drawdown-event shading, hover readout |
 | **Sector Momentum** | middle | Ranked bar chart of the risk-adjusted momentum score per sector |
 | **Backtest** | middle | Growth-of-$1 curves for the four strategies + CAGR / vol / Sharpe / max-DD table |
-| **Tracked Instruments** | middle | Positions-style table of all 19 symbols: role, fund name, what the math uses it for, last, change, 52-wk range, momentum rank/score/3-6-12M returns, last update |
+| **Tracked Instruments** | middle | Positions-style table of the 19 ETFs: role, fund name, what the math uses it for, last, change, 52-wk range, momentum rank/score/3-6-12M returns, last update |
 | **Regime Composite — Legs** | right | Multi-leg "ticket": the five weighted legs (trend, breadth, vol, credit, curve), what each reads, its weight, and its current z-score for every index side by side, plus the composite and bucket |
 | **Sector Rotation Ladder** | right | Option-chain style ladder of the 11 sectors: 3/6/12M returns, highlighted ticker column, score bar, rank; top-3 holdings shaded |
 | **Alerts** | right | Derived at render time: regime bucket state per index, bucket flips in the last 5 sessions, failed pipeline runs, stale-data warnings, current top-3 holdings |
+| **Rotation Plays** | middle | The candidate long list: leading sector ETFs plus the strongest names inside them, with strength, buy-below, reference entry, stop, risk %, T1/T2, a stop→target ladder, ATR-to-target feasibility, and shares per $1,000 of risk |
+| **Rotation Strength** | right | 0-100 reading of how tradeable the current rotation is, its three components, current leaders/laggards, and a 250-session history |
 | **Message Center** | right | Data mode, as-of date, symbols reporting, last run of each pipeline stage, and a live countdown to the next `pg_cron` compute |
 
 Everything is wired to Supabase Realtime via `RealtimeRefresher` — any row
@@ -161,6 +174,61 @@ one landed.
   same convention as `scripts/refresh.py`.
 - Sector `score` is unitless (blended momentum ÷ annualized vol).
 - `latest_prices.chg_pct` is percent; `chg` is in price units.
+
+## The play list, and what the numbers mean
+
+`compute-trade-setups` answers two separate questions.
+
+**Is this rotation worth trading?** Three things have to be true at once for a
+sector rotation to be tradeable, so `rotation_strength` measures all three and
+blends them into a 0-100 score:
+
+- **Dispersion** — the cross-sectional standard deviation of the 11 sector
+  scores. If every sector is moving together there is nothing to rotate into,
+  however strong the market is.
+- **Leader gap** — mean of the top 3 scores minus mean of the bottom 3. How
+  much you actually gain by being in the leaders rather than the field.
+- **Persistence** — Spearman rank correlation between today's sector ranking
+  and the ranking 21 sessions ago. Leadership that reshuffles every week is
+  not something you can hold a position through.
+
+Each is scored against its own trailing year and blended 40/35/25. The
+important case is the one a single number would hide: **wide dispersion with
+low persistence is labelled `churn`, not `strong`** — sectors are spread out
+but the leadership keeps changing, which is the worst backdrop to enter into.
+
+**What do I actually buy, and where are my levels?** Candidates are the top-3
+momentum sectors, plus the strongest individual names inside each of those
+sectors (`symbol_meta` maps stocks to their SPDR sector). Sector ETFs are
+scored on the same 3/6/12-month blend as the ladder; individual names use a
+faster 3/6-month blend, because inside an already-chosen sector what matters
+is who is leading now.
+
+Levels are arithmetic, not opinion:
+
+- **Stop** — 2 ATR below the close, dropped under the 20-day low when structure
+  sits lower, then capped at 3 ATR. The cap matters: without it a deep recent
+  low drags the stop so wide that the trade risks more than the first target
+  pays.
+- **Targets** — fixed multiples of that risk, T1 at 2R and T2 at 3R. That makes
+  the reward:risk constant by construction, which is the point: the plan always
+  has the same shape and you size to it.
+- **ATR→T1** — how many *daily* ATRs the price has to cover to reach T1. This is
+  the honest feasibility check that a fixed R multiple hides. Four to six is
+  normal for a multi-week hold; a double-digit figure means the stop is too wide
+  for the payoff to be realistic on that name.
+- **Sh/$1k** — shares per $1,000 of risk (`1000 / risk_per_share`). Account-
+  agnostic sizing: decide what you're willing to lose, multiply.
+
+ATR uses true range where real highs and lows are stored, and falls back to
+close-to-close change where they aren't; rows built on the fallback are flagged
+in the row note, because that proxy understates range on gap days.
+
+Two deliberate omissions. The regime score is carried as **context, not a
+gate** — the backtest below found using it as a hard on/off filter was a net
+drag, so it never removes a candidate. And nothing here knows about earnings
+dates, news, or overnight gaps; a stop is a level, not a guarantee of the fill
+you'll get.
 
 ## What's actually being computed
 
@@ -189,11 +257,12 @@ detail when this was first built. Short version:
 ```
 app/                        Next.js App Router pages + layout (fonts, metadata)
 components/                 Terminal UI: gauges, regime chart, sector panel, backtest panel, ticker
-lib/                        Supabase client, types, demo-data fallback, server-side data fetch
+lib/                        Supabase client, types, instrument registry, demo-data fallback, server-side data fetch
 scripts/refresh.py          Reference implementation of the math (not part of the live path — see above)
 supabase/schema.sql         Tables, RLS policies, Realtime config, and the pg_cron/pg_net job setup
-supabase/functions/         The three Edge Functions that actually run the pipeline in production:
-  ingest-prices/               writes raw_prices from fetched OHLCV closes
+supabase/functions/         The four Edge Functions that actually run the pipeline in production:
+  ingest-prices/               writes raw_prices from fetched OHLCV bars
   compute-regime-score/        raw_prices -> regime_snapshot + regime_history
   compute-sector-rotation/     raw_prices -> sector_rankings
+  compute-trade-setups/        raw_prices + symbol_meta -> rotation_strength + trade_setups
 ```
