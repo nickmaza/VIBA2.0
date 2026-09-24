@@ -17,8 +17,8 @@ const plexSans = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "REGIME // Sector Rotation Terminal",
-  description: "Live market regime score and sector rotation ranking, backed by Supabase.",
+  title: "VIBA Terminal",
+  description: "VIBA Terminal: market regime, sector rotation, stock and leveraged-ETF plays with exact trade plans, and a chart and search tool that marks levels and setups on any ticker.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

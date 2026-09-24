@@ -1,4 +1,4 @@
-# Regime // Rotation Terminal
+# VIBA Terminal
 
 A Bloomberg-terminal-styled market regime score (SPY/QQQ/IWM) and sector
 rotation ranking, backed by Supabase and deployable to Vercel. Real Next.js
@@ -8,6 +8,15 @@ Renders with a bundled **demo dataset** (the last real backtest run) until you
 connect Supabase, so `npm run dev` shows a working terminal immediately. A
 yellow `DEMO DATA` badge in the header tells you which mode you're in; it
 switches to a green `LIVE — SUPABASE` badge once real tables are wired up.
+
+## Plays and Chart & Search
+
+The terminal is a tabbed workspace: **Overview**, **Plays**, **Chart & Search**, **Regime**, **Sectors**, **Backtest** and **Pipeline**.
+
+- **Plays** (`lib/plays.ts`, `components/PlaysBoard.tsx`): curated stock plays and leveraged sector-ETF plays in separate sections, plus a watchlist. No index products (SPY, QQQ, IWM, DIA or their leveraged versions) are ever plays. Each play has a written case and a trade plan computed from its own price bars: entry, stop loss, TP 1, TP 2, reward:risk, and a checklist of which conditions are confirmed and which still need to confirm.
+- **Chart & Search** (`components/ChartSearch.tsx`): search any US stock or ETF by ticker or name. It draws an interactive candlestick / bar chart (lightweight-charts) with volume, the 21/50/200-day averages, auto-detected support and resistance, and the trade plan for every setup found.
+- **Setup engine** (`lib/ta.ts`): pure TypeScript, shared by server and browser. Levels are clustered swing highs/lows (5 bars each side) over the past year. Setups: breakout (confirmed / needs confirmation), pullback to support, extended (wait), oversold bounce, 200-day reclaim, and breakdown (short).
+- **Price data** (`lib/market.ts`, `/api/bars`, `/api/search`): Supabase `raw_prices` first, then Yahoo Finance, then Stooq, then the bundled snapshot in `lib/snapshot-bars.json`. Every chart and play card says which source it used. Yahoo and Stooq are free, keyless and unofficial, so they can rate-limit; swap in a paid provider in `lib/market.ts` if you need guaranteed uptime.
 
 ## 1. Run it locally
 
