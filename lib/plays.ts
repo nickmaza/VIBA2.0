@@ -1,11 +1,12 @@
-// The curated VIBA plays: individual stocks and leveraged sector ETFs drawn
-// from the top of the sector ranking. The written case for each play lives
+// The curated VIBA stock plays, drawn from the top of the sector ranking.
+// (The second play section is Smart Money plays, computed live in
+// lib/smartmoney.) The written case for each play lives
 // here; the technical setup (entry / stop / take-profits and the confirmed vs
 // pending checklist) is computed live from price bars by lib/ta.ts, so the
 // numbers always match the chart.
 //
 // Rule: no index products as plays (SPY, QQQ, IWM, DIA or their leveraged
-// versions). Leveraged picks must be sector funds.
+// versions).
 
 export interface Play {
   symbol: string;
@@ -98,41 +99,7 @@ const DATA: { asOf: string; stocks: Play[]; leveraged: Play[]; watchlist: WatchI
       "risk": "Near-term momentum is flat. Needs to hold the 50-day to stay a play."
     }
   ],
-  "leveraged": [
-    {
-      "symbol": "ROM",
-      "name": "ProShares Ultra Technology",
-      "kind": "leveraged",
-      "sector": "2× Technology",
-      "score": 1.04,
-      "vol": 55,
-      "thesis": "ROM gives 2× daily exposure to large-cap US tech, the #2 sector in the ranking. It has more than doubled from its March 30 low of $71.36. It is the best risk-adjusted leveraged fund on the screen and has half the volatility of the 3× TECL, so less value is lost to daily resets.",
-      "chartRead": "ROM closed back above the $155 level that capped it twice in August and September, and the engine counts that breakout as confirmed. Leveraged funds suit trades held for days or weeks. Take partial profits at TP1 rather than holding for the full move.",
-      "risk": "2× daily reset: holding through choppy weeks erodes returns even if tech ends flat."
-    },
-    {
-      "symbol": "CURE",
-      "name": "Direxion Daily Healthcare Bull 3×",
-      "kind": "leveraged",
-      "sector": "3× Health Care",
-      "score": 0.84,
-      "vol": 55,
-      "thesis": "CURE gives 3× daily exposure to S&P 500 health care, the #3 sector, and pairs with the TMO and MRK stock plays. It is up about 67% over 12 months and sits above both long-term averages. Its $121 support has held seven separate tests over the past year, which makes it the clearest risk line of any leveraged pick.",
-      "chartRead": "CURE dipped about 10% over the past month and RSI is back to neutral (about 50), so this is a pullback setup. At 3× leverage, a 3% drop in health care costs about 9%. Wait for the turn higher to trigger, and keep size small.",
-      "risk": "3× daily leverage. A 10% sector drop costs about 30%."
-    },
-    {
-      "symbol": "ERX",
-      "name": "Direxion Daily Energy Bull 2×",
-      "kind": "leveraged",
-      "sector": "2× Energy",
-      "score": 0.98,
-      "vol": 42,
-      "thesis": "ERX gives 2× daily exposure to large-cap energy, the #1 ranked sector. It is up about 85% over 12 months. Because the energy sector is heavy in integrated oil majors, it is a steadier way to play the sector than the more volatile refiners.",
-      "chartRead": "ERX set a high of $115.81 on Sept 10 and has pulled back to its 50-day average (about $101), just above the $98 support shelf that has held three tests, while staying above its 50- and 200-day averages. RSI in the mid-40s shows momentum has reset. The setup waits for a turn higher before entering.",
-      "risk": "RSI 35 shows weak short-term momentum. Wait for it to turn up before adding."
-    }
-  ],
+  "leveraged": [],
   "watchlist": [
     {
       "symbol": "PSX",
@@ -151,33 +118,14 @@ const DATA: { asOf: string; stocks: Play[]; leveraged: Play[]; watchlist: WatchI
       "kind": "stock",
       "note": "Tech backup with lower volatility than MU or AMD.",
       "name": "Apple"
-    },
-    {
-      "symbol": "TECL",
-      "kind": "leveraged",
-      "note": "3× version of ROM. Stronger moves both ways; ROM ranks higher risk-adjusted.",
-      "name": "Direxion Daily Technology Bull 3×"
-    },
-    {
-      "symbol": "SOXL",
-      "kind": "leveraged",
-      "note": "3× semis. Still 50% below its high after a 34% 3-month drop; 150%+ volatility.",
-      "name": "Direxion Daily Semiconductor Bull 3×"
-    },
-    {
-      "symbol": "LABU",
-      "kind": "leveraged",
-      "note": "Cut from plays: fell 12% on Sept 23 and closed below its 50-day.",
-      "name": "Direxion Daily S&P Biotech Bull 3×"
     }
   ]
 };
 
 export const PLAYS_AS_OF = DATA.asOf;
 export const STOCK_PLAYS = DATA.stocks;
-export const LEVERAGED_PLAYS = DATA.leveraged;
 export const WATCHLIST = DATA.watchlist;
-export const ALL_PLAYS: Play[] = [...DATA.stocks, ...DATA.leveraged];
+export const ALL_PLAYS: Play[] = [...DATA.stocks];
 
 export const PLAY_NAMES: Record<string, string> = Object.fromEntries(
   [...ALL_PLAYS.map((p) => [p.symbol, p.name]), ...DATA.watchlist.map((w) => [w.symbol, w.name])]

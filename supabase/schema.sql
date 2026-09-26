@@ -282,3 +282,18 @@ select cron.schedule(
 --   select id, status_code, content::text, created
 --   from net._http_response order by created desc limit 5;
 -- To list/unschedule jobs: select * from cron.job; select cron.unschedule('compute-regime-score-refresh');
+
+-- Smart Money feed: data only a Robinhood-connected job can fetch (options
+-- premium/volume/open interest for the most active large caps, and STOCK Act
+-- congressional trades). One row per kind ('options', 'congress'), fully
+-- replaced each run by the scheduled Claude task; payload is the JSON array
+-- the app expects (see lib/smartmoney/index.ts: OptionsRow[] / CongressSummary[]).
+-- When this table is empty the app falls back to lib/smartmoney/snapshot.json.
+create table if not exists smart_money_feed (
+  kind text primary key check (kind in ('options','congress')),
+  as_of date not null,
+  payload jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table smart_money_feed enable row level security;
+create policy "public read" on smart_money_feed for select using (true);

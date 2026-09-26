@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Analysis } from "@/lib/ta";
 import { money } from "@/lib/ta";
 import type { Play, WatchItem } from "@/lib/plays";
@@ -151,20 +152,18 @@ function PlayCard({ v }: { v: PlayView }) {
 }
 
 /**
- * The VIBA plays: stock plays and leveraged-ETF plays in separate sections,
- * each with the written case plus the engine's setup and exact levels, and a
- * watchlist of names that nearly made it.
+ * The VIBA plays: stock plays with the written case plus the engine's setup
+ * and exact levels, then the Smart Money plays section (passed in as
+ * `secondary`, it loads client-side), then a watchlist.
  */
 export default function PlaysBoard({
   stocks,
-  leveraged,
   watchlist,
-  regimeLine,
+  secondary,
 }: {
   stocks: PlayView[];
-  leveraged: PlayView[];
   watchlist: WatchView[];
-  regimeLine: string;
+  secondary?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-3 p-2 text-[11px]">
@@ -196,36 +195,16 @@ export default function PlaysBoard({
         </div>
       </section>
 
-      <section className="flex flex-col gap-2">
-        <div>
-          <h2 className="m-0 flex items-center gap-2 text-[13px] font-bold uppercase tracking-wide text-term-text">
-            <span className="border border-term-amber/60 px-1 font-mono text-[10px] text-term-amber">LEVERAGED</span>
-            Leveraged ETF plays
-          </h2>
-          <p className="m-0 mt-0.5 text-term-dim">
-            Leveraged sector funds that line up with the sector ranking and pass the same trend screen.
-          </p>
-        </div>
-        <div className="border border-term-amber/40 bg-term-amber/[0.07] px-2 py-1.5 leading-relaxed text-term-dim">
-          <span className="font-semibold text-term-amber">Daily reset. </span>
-          These funds target 2× or 3× the sector&apos;s move for one day only. In a choppy market they lose value even when
-          the sector goes nowhere. They suit holds of days to weeks, at a fraction of a normal stock position. The regime
-          currently reads <span className="text-term-text">{regimeLine}</span>.
-        </div>
-        <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
-          {leveraged.map((v) => (
-            <PlayCard key={v.play.symbol} v={v} />
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-1 text-[10.5px] text-term-dim">
-          <span>Excluded by rule, no index products:</span>
-          {EXCLUDED_INDEX_PRODUCTS.map((s) => (
-            <span key={s} className="border border-term-border px-1 font-mono text-term-dim line-through">
-              {s}
-            </span>
-          ))}
-        </div>
-      </section>
+      {secondary}
+
+      <div className="flex flex-wrap items-center gap-1 text-[10.5px] text-term-dim">
+        <span>Excluded by rule, no index products:</span>
+        {EXCLUDED_INDEX_PRODUCTS.map((s) => (
+          <span key={s} className="border border-term-border px-1 font-mono text-term-dim line-through">
+            {s}
+          </span>
+        ))}
+      </div>
 
       <section className="flex flex-col gap-1">
         <h2 className="m-0 text-[13px] font-bold uppercase tracking-wide text-term-text">Watchlist</h2>
@@ -252,7 +231,7 @@ export default function PlaysBoard({
                   <tr key={item.symbol} className="row-hover border-t border-term-border/60">
                     <td className="px-2 py-1 font-mono font-bold text-term-text">{item.symbol}</td>
                     <td className={`px-2 py-1 ${item.kind === "stock" ? "text-term-cyan" : "text-term-amber"}`}>
-                      {item.kind === "stock" ? "Stock" : "Lev. ETF"}
+                      {item.kind === "stock" ? "Stock" : "ETF"}
                     </td>
                     <td className="px-2 py-1 text-right font-mono tabular-nums">{A ? money(A.ind.close) : "—"}</td>
                     <td className="px-2 py-1">{s ? s.name : <span className="text-term-dim">No setup</span>}</td>

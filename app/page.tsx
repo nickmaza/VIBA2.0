@@ -2,7 +2,7 @@ import { getTerminalData } from "@/lib/data";
 import { INSTRUMENTS } from "@/lib/instruments";
 import { analyze, isAnalysis, type Analysis } from "@/lib/ta";
 import { getBars, type BarsResult } from "@/lib/market";
-import { ALL_PLAYS, LEVERAGED_PLAYS, PLAYS_AS_OF, STOCK_PLAYS, WATCHLIST, type Play } from "@/lib/plays";
+import { ALL_PLAYS, PLAYS_AS_OF, STOCK_PLAYS, WATCHLIST, type Play } from "@/lib/plays";
 import MenuBar from "@/components/MenuBar";
 import Panel, { Chip } from "@/components/Panel";
 import Ticker from "@/components/Ticker";
@@ -21,6 +21,8 @@ import MessageCenter from "@/components/MessageCenter";
 import Workspace from "@/components/Workspace";
 import PlaysBoard, { PlaysSummary, type PlayView, type WatchView } from "@/components/PlaysBoard";
 import ChartSearch from "@/components/ChartSearch";
+import SmartMoneyPlays, { SmartMoneySummary } from "@/components/SmartMoneyPlays";
+import SmartMoneyTab from "@/components/SmartMoneyTab";
 
 export const revalidate = 0;
 
@@ -42,14 +44,15 @@ async function getPlayViews() {
     source: bars.get(p.symbol)?.source ?? null,
   });
   const watch: WatchView[] = WATCHLIST.map((w) => ({ item: w, analysis: analysisOf(w.symbol) }));
-  return { stocks: STOCK_PLAYS.map(view), leveraged: LEVERAGED_PLAYS.map(view), watch };
+  return { stocks: STOCK_PLAYS.map(view), watch };
 }
 
 /**
  * VIBA Terminal. The page is a tabbed workspace; every tab is a grid of
  * dockable-looking windows in the same workstation style:
- *   Overview        -- regime quotes, today's plays at a glance, rotation, sector ladder, alerts
- *   Plays           -- stock plays and leveraged-ETF plays with full trade plans
+ *   Overview        -- regime quotes, today's plays at a glance, sector ladder, alerts
+ *   Plays           -- stock plays and smart money plays with full trade plans
+ *   Smart Money     -- money flow, rotation, risk appetite, options, insiders, 13F, congress
  *   Chart & Search  -- any ticker, interactive chart, auto levels and setups
  *   Regime / Sectors / Backtest / Pipeline -- the original analysis windows
  * A sticky menu bar sits on top and the ticker strip is pinned to the bottom.
@@ -71,9 +74,8 @@ export default async function Home() {
     .filter((r): r is NonNullable<typeof r> => Boolean(r));
   const firstDate = data.history[0]?.d ?? "";
   const lastDate = data.history[data.history.length - 1]?.d ?? "";
-  const regimeLine = snaps.map((s) => `${s.index_symbol} ${s.bucket} (${s.score >= 0 ? "+" : ""}${s.score.toFixed(2)})`).join(", ");
   const rotationState = data.rotation.length ? data.rotation[data.rotation.length - 1].state : "n/a";
-  const playCount = plays.stocks.length + plays.leveraged.length;
+  const playCount = plays.stocks.length;
 
   const quoteCards = snaps.map((s) => (
     <Panel key={s.index_symbol} title={s.index_symbol} controls={<Chip>quote · regime</Chip>}>
@@ -146,7 +148,7 @@ export default async function Home() {
       from historical prices. Past performance of the composite score, the momentum ranking and the setup rules does not
       predict future results; in backtest, using the regime score as a tactical cash filter underperformed the momentum
       ranking on its own. Trade plans are rules-based arithmetic on daily bars, not predictions, and nothing here accounts
-      for earnings dates, news or gaps. Leveraged ETFs reset daily and can lose most of their value quickly.
+      for earnings dates, news or gaps. Smart money signals describe where volume and positioning lean; they are not forecasts.
     </footer>
   );
 
@@ -156,7 +158,7 @@ export default async function Home() {
         <div className="flex min-w-0 flex-col gap-[3px]">
           <div className="grid grid-cols-1 gap-[3px] md:grid-cols-3">{quoteCards}</div>
           <Panel
-            title="VIBA Plays — at a glance"
+            title="Stock Plays — at a glance"
             controls={
               <>
                 <Chip active>{playCount} plays</Chip>
@@ -167,12 +169,17 @@ export default async function Home() {
               </>
             }
           >
-            <PlaysSummary
-              rows={[
-                { label: "Stock plays", items: plays.stocks },
-                { label: "Leveraged ETF plays", items: plays.leveraged },
-              ]}
-            />
+            <PlaysSummary rows={[{ label: "Stock plays", items: plays.stocks }]} />
+          </Panel>
+          <Panel
+            title="Smart Money Plays — at a glance"
+            controls={
+              <a href="#smart" className="text-term-cyan hover:underline">
+                smart money tab →
+              </a>
+            }
+          >
+            <SmartMoneySummary />
           </Panel>
           {disclaimer}
         </div>
@@ -188,16 +195,16 @@ export default async function Home() {
     plays: (
       <div className="flex flex-col gap-[3px]">
         <Panel
-          title="VIBA Plays — Stocks & Leveraged ETFs"
+          title="VIBA Plays — Stocks & Smart Money"
           controls={
             <>
-              <Chip active>{plays.stocks.length} stocks</Chip>
-              <Chip active>{plays.leveraged.length} leveraged</Chip>
+              <Chip active>{plays.stocks.length} stock plays</Chip>
+              <Chip active>smart money plays</Chip>
               <Chip>no index products</Chip>
             </>
           }
         >
-          <PlaysBoard stocks={plays.stocks} leveraged={plays.leveraged} watchlist={plays.watch} regimeLine={regimeLine} />
+          <PlaysBoard stocks={plays.stocks} watchlist={plays.watch} secondary={<SmartMoneyPlays />} />
         </Panel>
         <Panel
           title="Pipeline Candidates — Entry / Stop / Targets"
@@ -212,6 +219,12 @@ export default async function Home() {
           <TradeSetups setups={data.setups} rotation={data.rotation} />
         </Panel>
         {disclaimer}
+      </div>
+    ),
+
+    smart: (
+      <div className="flex flex-col gap-[3px]">
+        <SmartMoneyTab />
       </div>
     ),
 
@@ -332,6 +345,7 @@ export default async function Home() {
         tabs={[
           { id: "overview", label: "Overview" },
           { id: "plays", label: "Plays", badge: playCount },
+          { id: "smart", label: "Smart Money" },
           { id: "chart", label: "Chart & Search" },
           { id: "regime", label: "Regime" },
           { id: "sectors", label: "Sectors" },

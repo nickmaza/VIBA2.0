@@ -11,12 +11,29 @@ switches to a green `LIVE — SUPABASE` badge once real tables are wired up.
 
 ## Plays and Chart & Search
 
-The terminal is a tabbed workspace: **Overview**, **Plays**, **Chart & Search**, **Regime**, **Sectors**, **Backtest** and **Pipeline**.
+The terminal is a tabbed workspace: **Overview**, **Plays**, **Smart Money**, **Chart & Search**, **Regime**, **Sectors**, **Backtest** and **Pipeline**.
 
-- **Plays** (`lib/plays.ts`, `components/PlaysBoard.tsx`): curated stock plays and leveraged sector-ETF plays in separate sections, plus a watchlist. No index products (SPY, QQQ, IWM, DIA or their leveraged versions) are ever plays. Each play has a written case and a trade plan computed from its own price bars: entry, stop loss, TP 1, TP 2, reward:risk, and a checklist of which conditions are confirmed and which still need to confirm.
+- **Plays** (`lib/plays.ts`, `components/PlaysBoard.tsx`): curated stock plays and live **Smart Money plays** in separate sections, plus a watchlist. No index products (SPY, QQQ, IWM, DIA or their leveraged versions) are ever plays. Each play has a written case and a trade plan computed from its own price bars: entry, stop loss, TP 1, TP 2, reward:risk, and a checklist of which conditions are confirmed and which still need to confirm.
 - **Chart & Search** (`components/ChartSearch.tsx`): search any US stock or ETF by ticker or name. It draws an interactive candlestick / bar chart (lightweight-charts) with volume, the 21/50/200-day averages, auto-detected support and resistance, and the trade plan for every setup found.
 - **Setup engine** (`lib/ta.ts`): pure TypeScript, shared by server and browser. Levels are clustered swing highs/lows (5 bars each side) over the past year. Setups: breakout (confirmed / needs confirmation), pullback to support, extended (wait), oversold bounce, 200-day reclaim, and breakdown (short).
 - **Price data** (`lib/market.ts`, `/api/bars`, `/api/search`): Supabase `raw_prices` first, then Yahoo Finance, then Stooq, then the bundled snapshot in `lib/snapshot-bars.json`. Every chart and play card says which source it used. Yahoo and Stooq are free, keyless and unofficial, so they can rate-limit; swap in a paid provider in `lib/market.ts` if you need guaranteed uptime.
+
+## Smart Money
+
+The **Smart Money** tab (`components/SmartMoneyTab.tsx`, `lib/smartmoney/`) shows where money is moving and how informed players are positioned:
+
+| Signal | Source | Freshness |
+|---|---|---|
+| Money flow (Chaikin money flow, on-balance volume, up/down volume, accumulation vs distribution days) for 27 sector, industry, size, bond, commodity, dollar and bitcoin ETFs | Daily OHLCV via `lib/market.ts` | Live |
+| Rotation map (1- and 3-month strength vs SPY) and risk-appetite pairs (junk vs Treasuries, discretionary vs staples, small vs large, ...) | Daily closes | Live |
+| Options positioning: call vs put premium, call volume vs its 10-day average, open interest change | `smart_money_feed` table, else `lib/smartmoney/snapshot.json` | Refreshed by the scheduled Robinhood task |
+| Congressional trades (STOCK Act) | `smart_money_feed`, else snapshot | Disclosures lag trades up to 45 days |
+| Insider open-market buys and sells (Form 4, last 90 days) | SEC EDGAR, `/api/smart-money/insiders` | Live, cached 6 h |
+| Hedge-fund 13F adds, new positions and exits for 12 tracked funds | SEC EDGAR, `/api/smart-money/funds` | Quarterly, cached 12 h |
+
+**Smart Money plays** (Plays tab) are large caps where volume flow and options positioning both lean bullish and price is above its 50- and 200-day averages; each gets the same entry / stop / TP1 / TP2 trade plan as the stock plays, with the evidence listed.
+
+Set `SEC_USER_AGENT` in `.env.local` (and in Vercel) to something like `VIBA Terminal you@example.com`; the SEC asks automated clients to identify themselves. To keep options and congress data current, have the scheduled Robinhood task upsert `smart_money_feed` rows (`kind = 'options'` and `'congress'`) using the shapes in `lib/smartmoney/index.ts`.
 
 ## 1. Run it locally
 
