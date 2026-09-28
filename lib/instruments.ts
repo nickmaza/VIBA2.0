@@ -59,9 +59,27 @@ export const REGIME_LEGS: {
   { key: "z_curve", leg: 5, label: "Rate curve", inputs: "IEF / SHY · 20d chg", weight: 0.1, perIndex: false },
 ];
 
-// The pg_cron schedules from supabase/schema.sql, so the UI can show when the
-// next automated compute is due. Hours are UTC (14-20 = 10am-4pm ET).
-export const CRON_JOBS = [
-  { name: "compute-regime-score", minute: 10, hours: [14, 15, 16, 17, 18, 19, 20], weekdaysOnly: true },
-  { name: "compute-sector-rotation", minute: 12, hours: [14, 15, 16, 17, 18, 19, 20], weekdaysOnly: true },
+// The pg_cron jobs behind what's on screen (supabase/migrations/20260927_schedules.sql).
+// Cron minutes are the same in UTC and New York; each job also gates itself to
+// a New York time window (weekdays where noted), so the UI computes the next
+// run in New York time. The after-close library sweeps (all prices, all option
+// chains) start at 16:30 ET and run until every symbol has the new session.
+export interface CronJob {
+  name: string; // edge function
+  label: string;
+  minutes: number[];
+  from: string; // "HH:MM" New York time, inclusive
+  to: string; // "HH:MM" New York time, inclusive
+  weekdays: boolean;
+}
+
+export const CRON_JOBS: CronJob[] = [
+  { name: "sync-prices", label: "Prices (market ETFs + on-screen names)", minutes: [0, 15, 30, 45], from: "09:30", to: "16:50", weekdays: true },
+  { name: "compute-regime-score", label: "Regime score", minutes: [5, 20, 35, 50], from: "09:30", to: "17:00", weekdays: true },
+  { name: "compute-sector-rotation", label: "Sector rotation", minutes: [6, 21, 36, 51], from: "09:30", to: "17:00", weekdays: true },
+  { name: "compute-trade-setups", label: "Trade setups", minutes: [7, 22, 37, 52], from: "09:30", to: "17:00", weekdays: true },
+  { name: "compute-plays", label: "Stock plays", minutes: [8, 38], from: "09:30", to: "17:00", weekdays: true },
+  { name: "sync-options", label: "Options (most active chains)", minutes: [40], from: "09:30", to: "15:59", weekdays: true },
+  { name: "compute-smart-money", label: "Smart money report", minutes: [45], from: "10:00", to: "17:00", weekdays: true },
+  { name: "sync-congress", label: "Congress filings", minutes: [7, 37], from: "00:00", to: "23:59", weekdays: false },
 ];

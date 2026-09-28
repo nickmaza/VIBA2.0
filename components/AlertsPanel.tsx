@@ -78,7 +78,7 @@ export function deriveAlerts({
   if (asOf) {
     const ageDays = (now.getTime() - new Date(asOf + "T21:00:00Z").getTime()) / 86400000;
     if (ageDays > 4) {
-      alerts.push({ level: "amber", title: "Data may be stale", detail: `snapshot as-of ${asOf} is ${Math.floor(ageDays)} days old` });
+      alerts.push({ level: "amber", title: "Data may be stale", detail: `regime scores as of ${asOf} are ${Math.floor(ageDays)} days old; check the Pipeline tab` });
     }
   }
 

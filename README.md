@@ -1,39 +1,65 @@
 # VIBA Terminal
 
-A Bloomberg-terminal-styled market regime score (SPY/QQQ/IWM) and sector
-rotation ranking, backed by Supabase and deployable to Vercel. Real Next.js
-project — runs on `localhost`, no sandbox.
+A trading-workstation style dashboard for the US market: a composite regime
+score for SPY / QQQ / IWM, a sector rotation ranking, stock plays with exact
+trade plans, a smart money tab (money flow, options, insiders, 13F funds,
+congressional trades) and an interactive chart for any US stock or ETF.
+Next.js 14 (App Router) on top of Supabase.
 
-Renders with a bundled **demo dataset** (the last real backtest run) until you
-connect Supabase, so `npm run dev` shows a working terminal immediately. A
-yellow `DEMO DATA` badge in the header tells you which mode you're in; it
-switches to a green `LIVE — SUPABASE` badge once real tables are wired up.
+**Every number on screen comes from Supabase.** Edge functions running on
+`pg_cron` pull real market data, store it, and compute every score inside the
+project; the app only reads. There is no demo dataset, no bundled snapshot
+and no simulated data anywhere: if a query fails, the panel says so and
+renders empty, and the header badge turns red with the failing query.
 
-## Plays and Chart & Search
+## Where the data comes from
 
-The terminal is a tabbed workspace: **Overview**, **Plays**, **Smart Money**, **Chart & Search**, **Regime**, **Sectors**, **Backtest** and **Pipeline**.
+| Data | Source | Edge function | Tables | Schedule (New York time) |
+|---|---|---|---|---|
+| Daily OHLCV for the whole library (2,100+ stocks and ETFs) | Yahoo Finance chart API, Nasdaq historical API as fallback | `sync-prices` | `raw_prices`, `symbol_stats` | Market ETFs and every name on screen every 15 min, 09:30–16:50 weekdays; the whole library after each close (from 16:30) |
+| Bars for any ticker you chart | same | `fetch-bars` (called by `/api/bars`) | `raw_prices` | On request; refreshes a symbol older than 15 min in the session, 12 h otherwise |
+| US listings directory, market caps, industries, SEC CIKs | Nasdaq screener, SEC `company_tickers.json` | `sync-directory` | `symbol_directory`, `symbol_meta` | Weekly (Sunday) |
+| Options activity per underlying (call/put volume, premium, open interest, IV30) | CBOE delayed option chains | `sync-options` | `options_daily`, view `options_latest` | 100 most active chains hourly in the session; every optionable name after each close |
+| Insider open-market buys and sells | SEC EDGAR daily index + Form 4 filings | `sync-insiders` | `sec_form4_queue`, `insider_trades` | Index every 2 h; queued filings every 5 min |
+| Hedge-fund positioning (12 tracked funds) | SEC EDGAR 13F-HR filings | `sync-13f` | `fund_filings`, `fund_holdings`, `smart_money_reports('funds')` | Daily |
+| Congressional trades (STOCK Act) | Senate eFD and House Clerk periodic transaction reports; party from the congress-legislators dataset | `sync-congress` | `congress_filings`, `congress_trades`, `congress_members` | :07 and :37 every hour |
 
-- **Plays** (`lib/plays.ts`, `components/PlaysBoard.tsx`): curated stock plays and live **Smart Money plays** in separate sections, plus a watchlist. No index products (SPY, QQQ, IWM, DIA or their leveraged versions) are ever plays. Each play has a written case and a trade plan computed from its own price bars: entry, stop loss, TP 1, TP 2, reward:risk, and a checklist of which conditions are confirmed and which still need to confirm.
-- **Chart & Search** (`components/ChartSearch.tsx`): search any US stock or ETF by ticker or name. It draws an interactive candlestick / bar chart (lightweight-charts) with volume, the 21/50/200-day averages, auto-detected support and resistance, and the trade plan for every setup found.
-- **Setup engine** (`lib/ta.ts`): pure TypeScript, shared by server and browser. Levels are clustered swing highs/lows (5 bars each side) over the past year. Setups: breakout (confirmed / needs confirmation), pullback to support, extended (wait), oversold bounce, 200-day reclaim, and breakdown (short).
-- **Price data** (`lib/market.ts`, `/api/bars`, `/api/search`): Supabase `raw_prices` first, then Yahoo Finance, then Stooq, then the bundled snapshot in `lib/snapshot-bars.json`. Every chart and play card says which source it used. Yahoo and Stooq are free, keyless and unofficial, so they can rate-limit; swap in a paid provider in `lib/market.ts` if you need guaranteed uptime.
+| Computed | Edge function | Tables | Schedule |
+|---|---|---|---|
+| Regime score (SPY, QQQ, IWM) | `compute-regime-score` | `regime_snapshot`, `regime_history` | Every 15 min, 09:30–17:00 weekdays; full rebuild Sundays |
+| Sector ranking | `compute-sector-rotation` | `sector_rankings` | Every 15 min, 09:30–17:00 weekdays |
+| Rotation strength and trade setups | `compute-trade-setups` | `rotation_strength`, `trade_setups` | Every 15 min in the session, and after the evening sweep |
+| Stock plays and watchlist | `compute-plays` | `stock_plays` | Every 30 min in the session, and after the evening sweep |
+| Smart money report | `compute-smart-money` | `smart_money_reports('smart_money')` | Hourly in the session, and after the evening sweep |
+| Sector-rotation backtest | `compute-backtest` | `backtest_curves`, `backtest_stats` | Daily, 16:55 |
 
-## Smart Money
+The schedule lives in `supabase/migrations/20260927_schedules.sql`. `pg_cron`
+runs in UTC, so each job gates itself to New York hours in SQL (daylight
+saving is handled; exchange holidays are not modeled, so on a holiday the jobs
+re-read the previous session). The after-close sweeps run until every library
+symbol and every option chain has the new session, and a dependent job then
+rebuilds the setups, plays and smart money report once.
 
-The **Smart Money** tab (`components/SmartMoneyTab.tsx`, `lib/smartmoney/`) shows where money is moving and how informed players are positioned:
+## How the pipeline runs
 
-| Signal | Source | Freshness |
-|---|---|---|
-| Money flow (Chaikin money flow, on-balance volume, up/down volume, accumulation vs distribution days) for 27 sector, industry, size, bond, commodity, dollar and bitcoin ETFs | Daily OHLCV via `lib/market.ts` | Live |
-| Rotation map (1- and 3-month strength vs SPY) and risk-appetite pairs (junk vs Treasuries, discretionary vs staples, small vs large, ...) | Daily closes | Live |
-| Options positioning: call vs put premium, call volume vs its 10-day average, open interest change | `smart_money_feed` table, else `lib/smartmoney/snapshot.json` | Refreshed by the scheduled Robinhood task |
-| Congressional trades (STOCK Act) | `smart_money_feed`, else snapshot | Disclosures lag trades up to 45 days |
-| Insider open-market buys and sells (Form 4, last 90 days) | SEC EDGAR, `/api/smart-money/insiders` | Live, cached 6 h |
-| Hedge-fund 13F adds, new positions and exits for 12 tracked funds | SEC EDGAR, `/api/smart-money/funds` | Quarterly, cached 12 h |
-
-**Smart Money plays** (Plays tab) are large caps where volume flow and options positioning both lean bullish and price is above its 50- and 200-day averages; each gets the same entry / stop / TP1 / TP2 trade plan as the stock plays, with the evidence listed.
-
-Set `SEC_USER_AGENT` in `.env.local` (and in Vercel) to something like `VIBA Terminal you@example.com`; the SEC asks automated clients to identify themselves. To keep options and congress data current, have the scheduled Robinhood task upsert `smart_money_feed` rows (`kind = 'options'` and `'congress'`) using the shapes in `lib/smartmoney/index.ts`.
+- `pg_cron` calls `private.invoke_edge(fn, body)`, which posts to the edge
+  function with the `x-refresh-secret` header. The secret lives only in
+  Supabase Vault (`refresh_secret`); the functions read it through the
+  service-role-only RPC `edge_refresh_secret()`, so it appears nowhere in the
+  code. Re-running `supabase/migrations/20260927_edge_secret.sql` rotates it.
+- The functions write with the service role key that Supabase injects into
+  their environment. The anon key used by the app can only read: row-level
+  security allows `SELECT` and nothing else, and the table-level write grants
+  are revoked as well.
+- Every run appends a row to `refresh_log` (the `pipeline_status` view keeps
+  the latest run of each job with 24-hour tallies). The app subscribes to
+  `refresh_log` inserts over Supabase Realtime and re-reads whatever changed,
+  so open tabs stay current without polling.
+- The sources are free and public, so the functions pace themselves: CBOE's
+  CDN throttles bursts (the options sweep backs off automatically), SEC EDGAR
+  is kept under its 10 requests/second fair-access limit and identifies itself
+  with `pipeline_config.sec_user_agent`, and Yahoo symbols are fetched six at
+  a time with the Nasdaq API as a fallback.
 
 ## 1. Run it locally
 
@@ -42,253 +68,154 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 — you'll see the terminal running on the bundled
-demo data.
+Open http://localhost:3000. The app reads the VIBA Supabase project out of the
+box (`lib/supabase.ts`). To point it at another project, copy `.env.example` to
+`.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`. Both are public values: the anon key cannot
+write.
 
-## 2. Connect Supabase
+## 2. Setting up a fresh Supabase project (only for a copy)
 
-1. Create a project at supabase.com (or use one you already have).
-2. In the SQL editor, run `supabase/schema.sql` — it creates the tables
-   (`raw_prices`, `symbol_meta`, `regime_snapshot`, `regime_history`,
-   `sector_rankings`, `rotation_strength`, `trade_setups`, `backtest_curves`,
-   `backtest_stats`, `refresh_log`) plus the `latest_prices` view, turns on
-   Row Level Security with a public-read-only policy, adds the live tables to
-   the Realtime publication so the terminal updates with no polling, and
-   registers the `pg_cron` jobs.
-3. Copy `.env.local.example` to `.env.local` and fill in your project's URL
-   and anon key (Project Settings → API).
-4. Restart `npm run dev` — the badge should flip to `LIVE — SUPABASE` once
-   the tables have at least one row (see the refresh job below).
+1. Run `supabase/schema.sql`, then every file in `supabase/migrations/` in
+   filename order. Change the project URL inside `private.invoke_edge` (in
+   `20260926_real_data_pipeline.sql`) to your project's.
+2. Deploy the functions (they authenticate with the refresh secret, not a JWT):
 
-The anon key is safe to ship to the browser: RLS only grants it `SELECT`.
-Nothing in the deployed site can write to your database.
+   ```bash
+   for f in sync-prices fetch-bars sync-directory sync-options sync-insiders sync-13f sync-congress \
+            compute-regime-score compute-sector-rotation compute-trade-setups compute-plays \
+            compute-smart-money compute-backtest; do
+     supabase functions deploy $f --no-verify-jwt
+   done
+   ```
 
-## 3. Populate it — the refresh pipeline
+3. Optionally set `pipeline_config.sec_user_agent` to a name and contact email;
+   the SEC asks automated clients to identify themselves.
+4. Seed the library in `symbol_meta` (the sector ETFs, regime inputs and flow
+   ETFs are inserted by the migrations; stocks are added with their sector ETF).
+   The schedule backfills everything else on its own: prices and option chains
+   for every symbol that has never been synced, the Form 4 queue, congressional
+   filings and 13Fs. To start at once, call the functions through SQL, e.g.
+   `select private.invoke_edge('sync-directory', '{}');`.
 
-**The math runs entirely inside Supabase now**, as four Edge Functions in
-`supabase/functions/` (TypeScript/Deno ports of the original Python
-formulas), triggered on a schedule by Postgres itself (`pg_cron` + `pg_net`
-— see the bottom of `supabase/schema.sql`). Nothing needs to stay open —
-not a terminal, not this chat, not any external process — for the site to
-keep refreshing during market hours.
-
-| Function | Reads | Writes | Trigger |
-|---|---|---|---|
-| `ingest-prices` | request body | `raw_prices` | called by the scheduled ingest task (below) |
-| `compute-regime-score` | `raw_prices` | `regime_snapshot`, `regime_history` | `pg_cron`, hourly (market hours) |
-| `compute-sector-rotation` | `raw_prices` | `sector_rankings` | `pg_cron`, hourly (market hours) |
-| `compute-trade-setups` | `raw_prices`, `symbol_meta` | `rotation_strength`, `trade_setups` | `pg_cron`, hourly (market hours) |
-
-All four write with the **service role key** (`SUPABASE_SERVICE_ROLE_KEY`,
-auto-injected into every Edge Function's environment by Supabase — never
-exposed to the browser) and authenticate write requests with a shared-secret
-header (`x-refresh-secret`) instead of a Supabase JWT, since the caller is
-an automated job, not a logged-in user. Deploy them with the Supabase CLI or
-dashboard:
-
-```bash
-supabase functions deploy ingest-prices
-supabase functions deploy compute-regime-score
-supabase functions deploy compute-sector-rotation
-supabase functions deploy compute-trade-setups
-```
-
-**The one piece that still needs an external actor: getting Robinhood data
-in.** `raw_prices` (fresh daily bars for every symbol in `symbol_meta` — the
-19 ETFs plus the ~66 stocks tracked inside the sectors) is the only input
-these functions can't produce themselves — Edge Functions can't authenticate
-to a personal Robinhood session. In this deployment that gap is filled by a
-scheduled Claude task (a "Routine") that wakes up hourly during market hours,
-reads the symbol list out of `symbol_meta`, pulls fresh OHLCV bars via the
-Robinhood MCP connector, and calls `ingest-prices` with them. It skips bars
-flagged `interpolated` (synthetic gap-fill for the not-yet-complete session),
-which would otherwise write flat fake bars and corrupt ATR. That task does **no computation** — it's a thin
-data-delivery step; every actual formula lives in the Edge Functions above.
-If you'd rather not depend on a scheduled Claude task at all, point any
-process you control (a small cron job, a Polygon/Alpaca/IEX-backed script,
-etc.) at the same `ingest-prices` endpoint with the same request shape:
-
-```
-POST https://<project-ref>.supabase.co/functions/v1/ingest-prices
-Content-Type: application/json
-x-refresh-secret: <your REFRESH_SECRET>
-
-{"prices": [{"symbol":"SPY","date":"2026-09-16","open":761.2,"high":766.4,"low":759.8,"close":765.96,"volume":58231044}, ...]}
-
-`close` is required; `open`/`high`/`low`/`volume` are optional, but send high
-and low when you have them — true range (and therefore every stop and target)
-degrades to a close-only proxy without them.
-```
-
-### A note on outbound HTTPS from a sandboxed caller
-
-If the process calling `ingest-prices` runs in a network-sandboxed
-environment (as the scheduled Claude task does), a direct HTTPS request to
-`*.supabase.co` may be firewalled off entirely. The fix used here: don't call
-the Edge Function's HTTPS URL directly — instead run `select net.http_post(...)`
-through the **Supabase SQL/MCP connection itself**, so Postgres's own server
-(which has unrestricted egress) makes the HTTP call on the caller's behalf.
-This is also exactly how the `pg_cron` jobs invoke the three compute
-functions — see `supabase/schema.sql` for the exact
-`net.http_post(...)` calls both paths use.
-
-### Refresh cadence — set expectations honestly
-
-The regime score and sector ranking are built from **daily** OHLCV bars — the
-underlying signal doesn't actually change intraday. Refreshing every trading
-hour (rather than every second) already refreshes faster than the model's
-real signal cadence; treat "live" here as "caught up with each new daily
-close and intraday RTH session," not a tick-by-tick quote feed. If you want
-a genuinely real-time quote strip on top of this, wire a separate live-quote
-API into the ticker bar (`components/Ticker.tsx`) — that's a different,
-much higher-frequency data need than what drives the regime/rotation math.
-
-### `scripts/refresh.py` — reference implementation, not part of the live path
-
-The original Python implementation is kept in `scripts/refresh.py` purely as
-the clearest reference for the exact formulas (it's what the Edge Functions
-were ported from line-for-line). It's no longer what runs in production —
-you don't need to run it, and nothing schedules it — but if you're auditing
-the math or prefer pandas to TypeScript, start there.
-
-## 4. Deploy to Vercel
+## 3. Deploy to Vercel
 
 ```bash
 npm i -g vercel   # if you don't have it
 vercel
 ```
 
-Add the two `NEXT_PUBLIC_*` env vars from `.env.local` in the Vercel project
-settings (Settings → Environment Variables) before or after the first
-deploy — `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The
-service role key never goes to Vercel — it's only used by the refresh job,
-which runs elsewhere (see above).
+No environment variables are required. The service role key never goes to
+Vercel: all writes happen inside Supabase.
 
 ## What the terminal shows
 
-The UI is laid out like a desktop trading workstation: a menu bar with a
-green accent stripe, a dense three-column grid of titled "windows"
-(`components/Panel.tsx`), and a scrolling ticker strip pinned to the bottom.
-It collapses to one column on phones.
+The UI is laid out like a desktop trading workstation: a menu bar, a tab strip,
+dense grids of titled windows (`components/Panel.tsx`) and a scrolling ticker
+strip pinned to the bottom. It collapses to one column on phones.
 
-| Window | Column | What's in it |
-|---|---|---|
-| **Pipeline** | left | News-feed style log of every automated run from `refresh_log` (ingest + both compute jobs), newest first, with ok/failed dots |
-| **SPY / QQQ / IWM** quote cards | left | Last close + day change, 52-wk hi/lo and range position (from the `latest_prices` view), the composite regime z-score and bucket, and a 60-session sparkline |
-| **.REGIME SPY** / **.REGIME SPY-QQQ-IWM** | middle | Composite regime charts with 3M/6M/1Y/3Y/5Y/MAX range buttons, bucket threshold lines, drawdown-event shading, hover readout |
-| **Sector Momentum** | middle | Ranked bar chart of the risk-adjusted momentum score per sector |
-| **Backtest** | middle | Growth-of-$1 curves for the four strategies + CAGR / vol / Sharpe / max-DD table |
-| **Tracked Instruments** | middle | Positions-style table of the 19 ETFs: role, fund name, what the math uses it for, last, change, 52-wk range, momentum rank/score/3-6-12M returns, last update |
-| **Regime Composite — Legs** | right | Multi-leg "ticket": the five weighted legs (trend, breadth, vol, credit, curve), what each reads, its weight, and its current z-score for every index side by side, plus the composite and bucket |
-| **Sector Rotation Ladder** | right | Option-chain style ladder of the 11 sectors: 3/6/12M returns, highlighted ticker column, score bar, rank; top-3 holdings shaded |
-| **Alerts** | right | Derived at render time: regime bucket state per index, bucket flips in the last 5 sessions, failed pipeline runs, stale-data warnings, current top-3 holdings |
-| **Rotation Plays** | middle | The candidate long list: leading sector ETFs plus the strongest names inside them, with strength, buy-below, reference entry, stop, risk %, T1/T2, a stop→target ladder, ATR-to-target feasibility, and shares per $1,000 of risk |
-| **Rotation Strength** | right | 0-100 reading of how tradeable the current rotation is, its three components, current leaders/laggards, and a 250-session history |
-| **Message Center** | right | Data mode, as-of date, symbols reporting, last run of each pipeline stage, and a live countdown to the next `pg_cron` compute |
+| Tab | What's in it |
+|---|---|
+| **Overview** | SPY / QQQ / IWM quote cards with their regime score, stock plays and smart money plays at a glance, regime legs, rotation strength, sector ladder, alerts |
+| **Plays** | Stock plays (compute-plays) and smart money plays (compute-smart-money), each with the written case and a trade plan computed from its own bars (entry, stop, TP 1, TP 2, reward:risk, checklist), the watchlist, and the pipeline's trade setups |
+| **Smart Money** | Money flow by sector and asset class, rotation map vs SPY, risk-appetite pairs, options positioning, accumulation leaders, insider buying, 13F fund moves, congressional trades |
+| **Chart & Search** | Search any US stock or ETF (library + full listings directory); daily candlestick / bar chart with volume, 21/50/200-day averages, auto support and resistance, and the plan for every setup the engine finds |
+| **Regime** | SPY and SPY/QQQ/IWM regime charts with range buttons, bucket thresholds and drawdown shading; the five legs of the composite |
+| **Sectors** | Ranked sector momentum chart, rotation strength history, sector ladder |
+| **Backtest** | Growth of $1 for four strategies with CAGR / volatility / Sharpe / max drawdown, recomputed daily from the stored history |
+| **Pipeline** | Every pipeline run from `refresh_log`, the tracked instruments table, and the message center: last run of each job, failures in the last 24 hours, and a countdown to the next scheduled runs |
 
-Everything is wired to Supabase Realtime via `RealtimeRefresher` — any row
-written to `raw_prices`, `regime_snapshot`, `regime_history`,
-`sector_rankings`, or `refresh_log` triggers every open tab to refresh
-immediately, no polling. The `RT` badge in the menu bar shows the
-subscription state, how many change events have arrived, and when the last
-one landed.
+The `RT` badge in the menu bar shows the Realtime subscription and the latest
+pipeline run; the `SUPABASE` badge next to it turns red and names the query if
+any read behind the page failed.
 
 ### Units, so nothing gets misread
 
 - Regime score and its five legs are **z-scores** (unitless, typically −3…+3).
-- Sector `r3` / `r6` / `r12` are stored as **percent** (`12.9` = +12.9%), the
-  same convention as `scripts/refresh.py`.
+- Sector `r3` / `r6` / `r12` are stored as **percent** (`12.9` = +12.9%).
 - Sector `score` is unitless (blended momentum ÷ annualized vol).
 - `latest_prices.chg_pct` is percent; `chg` is in price units.
+- Options premium is contracts traded × last trade price × 100, in dollars.
 
-## The play list, and what the numbers mean
+## The plays, and what the numbers mean
 
-`compute-trade-setups` answers two separate questions.
+**Stock plays** (`compute-plays`): inside the top three sectors, library stocks
+that trade above their 50- and 200-day averages on at least $50M a day are
+ranked by the average of their 3/6/12-month returns divided by 63-day
+volatility. The top two per sector are plays and the next one goes on the
+watchlist. Every word of each case is generated from the stock's own numbers,
+and the chart read comes from the same setup engine (`lib/ta.ts`) the browser
+runs. No index products (SPY, QQQ, IWM, DIA or their leveraged versions) are
+ever plays.
 
-**Is this rotation worth trading?** Three things have to be true at once for a
-sector rotation to be tradeable, so `rotation_strength` measures all three and
-blends them into a 0-100 score:
+**Smart money plays** (`compute-smart-money`): large caps where the volume flow
+leans to accumulation, options traders are paying more for calls than puts, and
+price is above its 50- and 200-day averages. Congressional and insider activity
+are shown as supporting evidence.
 
-- **Dispersion** — the cross-sectional standard deviation of the 11 sector
-  scores. If every sector is moving together there is nothing to rotate into,
-  however strong the market is.
-- **Leader gap** — mean of the top 3 scores minus mean of the bottom 3. How
-  much you actually gain by being in the leaders rather than the field.
-- **Persistence** — Spearman rank correlation between today's sector ranking
-  and the ranking 21 sessions ago. Leadership that reshuffles every week is
-  not something you can hold a position through.
+**Trade setups** (`compute-trade-setups`) answer two questions.
 
-Each is scored against its own trailing year and blended 40/35/25. The
-important case is the one a single number would hide: **wide dispersion with
-low persistence is labelled `churn`, not `strong`** — sectors are spread out
-but the leadership keeps changing, which is the worst backdrop to enter into.
+*Is this rotation worth trading?* `rotation_strength` blends three readings,
+each scored against its own trailing year (40/35/25):
 
-**What do I actually buy, and where are my levels?** Candidates are the top-3
-momentum sectors, plus the strongest individual names inside each of those
-sectors (`symbol_meta` maps stocks to their SPDR sector). Sector ETFs are
-scored on the same 3/6/12-month blend as the ladder; individual names use a
-faster 3/6-month blend, because inside an already-chosen sector what matters
-is who is leading now.
+- **Dispersion**: the cross-sectional standard deviation of the 11 sector
+  scores. If every sector moves together there is nothing to rotate into.
+- **Leader gap**: mean of the top 3 scores minus mean of the bottom 3.
+- **Persistence**: Spearman rank correlation between today's ranking and the
+  ranking 21 sessions ago. Wide dispersion with low persistence is labelled
+  `churn`, not `strong`.
 
-Levels are arithmetic, not opinion:
+*What do I buy, and where are my levels?* The top three sector ETFs plus the
+strongest stocks inside them (3/6-month blend per unit of 126-day volatility,
+at least $20M a day). Levels are arithmetic:
 
-- **Stop** — 2 ATR below the close, dropped under the 20-day low when structure
-  sits lower, then capped at 3 ATR. The cap matters: without it a deep recent
-  low drags the stop so wide that the trade risks more than the first target
-  pays.
-- **Targets** — fixed multiples of that risk, T1 at 2R and T2 at 3R. That makes
-  the reward:risk constant by construction, which is the point: the plan always
-  has the same shape and you size to it.
-- **ATR→T1** — how many *daily* ATRs the price has to cover to reach T1. This is
-  the honest feasibility check that a fixed R multiple hides. Four to six is
-  normal for a multi-week hold; a double-digit figure means the stop is too wide
-  for the payoff to be realistic on that name.
-- **Sh/$1k** — shares per $1,000 of risk (`1000 / risk_per_share`). Account-
-  agnostic sizing: decide what you're willing to lose, multiply.
+- **Stop**: 2 ATR below the close, dropped under the 20-day low when structure
+  sits lower, capped at 3 ATR.
+- **Targets**: T1 at 2R and T2 at 3R, so reward:risk is constant by
+  construction.
+- **ATR→T1**: how many daily ATRs price has to cover to reach T1, the
+  feasibility check a fixed R multiple hides.
+- **Sh/$1k**: shares per $1,000 of risk.
 
-ATR uses true range where real highs and lows are stored, and falls back to
-close-to-close change where they aren't; rows built on the fallback are flagged
-in the row note, because that proxy understates range on gap days.
-
-Two deliberate omissions. The regime score is carried as **context, not a
-gate** — the backtest below found using it as a hard on/off filter was a net
-drag, so it never removes a candidate. And nothing here knows about earnings
-dates, news, or overnight gaps; a stop is a level, not a guarantee of the fill
-you'll get.
+The regime score is **context, not a gate**, and nothing here knows about
+earnings dates, news or overnight gaps; a stop is a level, not a guaranteed fill.
 
 ## What's actually being computed
 
-Full methodology (the five regime components, the sector momentum formula,
-and the backtest results — including the honest finding that the regime
-score performed *worse* as a tactical cash filter than the momentum ranking
-alone) is in the header comments of `scripts/refresh.py` and was covered in
-detail when this was first built. Short version:
+- **Regime score**: a composite across trend (price vs 50/200-day averages),
+  breadth (RSP/SPY), volatility (VIXY 10-day vs 60-day average), credit
+  (HYG/IEF) and rate curve (IEF/SHY), each a z-score on a trailing 252-day
+  window, weighted 25/25/20/20/10 and z-scored again.
+- **Sector ranking**: the 11 SPDR sector ETFs ranked by blended 3/6/12-month
+  momentum (0.2/0.3/0.5) divided by 126-day realized volatility.
+- **Backtest**: monthly rebalancing since 2016 on dividend-adjusted closes:
+  equal weight (baseline), top 3 by the sector score, top 3 with the regime
+  score as a cash filter (1–3y Treasuries when SPY's score is at or below
+  −0.4), and bottom 3 as a sanity check. The Backtest tab shows the current
+  results. So far the regime filter has returned less than the momentum
+  ranking on its own, which is why it is used as context rather than a switch.
 
-- **Regime score** — a composite z-score across trend (50/200dma), breadth
-  (RSP/SPY ratio), volatility (VIXY short/long ratio), credit (HYG/IEF
-  ratio), and rate curve (IEF/SHY ratio), each normalized on a trailing
-  252-day window.
-- **Sector ranking** — the 11 SPDR sector ETFs ranked by blended 3/6/12-month
-  momentum divided by realized volatility.
-- **Backtest** (128 months, 2016–2026): equal-weight baseline 10.9% CAGR /
-  -23.2% max drawdown; top-3 momentum 13.6% CAGR / -18.5% max drawdown;
-  adding the regime score as a tactical filter actually *underperforms*
-  (9.6% CAGR / -30.8% max drawdown) — it avoided real damage in the Feb 2020
-  crash but was a net drag the other ~22 times it triggered. This is not
-  financial advice — treat the whole thing as a probabilistic, evidence-based
-  framework, not a mechanical buy/sell signal.
+This is not financial advice. Treat it as an evidence-based framework, not a
+mechanical buy/sell signal.
 
 ## Project layout
 
 ```
-app/                        Next.js App Router pages + layout (fonts, metadata)
-components/                 Terminal UI: gauges, regime chart, sector panel, backtest panel, ticker
-lib/                        Supabase client, types, instrument registry, demo-data fallback, server-side data fetch
-scripts/refresh.py          Reference implementation of the math (not part of the live path — see above)
-supabase/schema.sql         Tables, RLS policies, Realtime config, and the pg_cron/pg_net job setup
-supabase/functions/         The four Edge Functions that actually run the pipeline in production:
-  ingest-prices/               writes raw_prices from fetched OHLCV bars
-  compute-regime-score/        raw_prices -> regime_snapshot + regime_history
-  compute-sector-rotation/     raw_prices -> sector_rankings
-  compute-trade-setups/        raw_prices + symbol_meta -> rotation_strength + trade_setups
+app/                         Next.js App Router page, layout and API routes
+  api/bars                     one symbol's bars via the fetch-bars edge function
+  api/search                   search_symbols() RPC
+  api/smart-money[/insiders|/funds]   reports and insider trades from Supabase
+components/                  Terminal UI (panels, charts, plays, smart money, pipeline)
+lib/                         Supabase client and readers (data, plays, market, smartmoney), setup engine (ta.ts)
+supabase/schema.sql          Base tables, RLS and the latest_prices view
+supabase/migrations/         The data pipeline: tables, RPCs, Vault secret, pg_cron schedule, read grants
+supabase/functions/          Edge functions (Deno):
+  _shared/                     helpers, Yahoo/Nasdaq price client, setup engine and money-flow copies
+  sync-prices, fetch-bars      daily bars -> raw_prices, symbol_stats
+  sync-directory               listings, market caps, CIKs
+  sync-options                 CBOE chains -> options_daily
+  sync-insiders, sync-13f      SEC EDGAR Form 4 and 13F
+  sync-congress                Senate and House STOCK Act reports
+  compute-*                    regime, sectors, setups, plays, smart money, backtest
+  ingest-prices                retired (returns 410): prices come only from sync-prices
 ```

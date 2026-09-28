@@ -2,28 +2,19 @@ import type { ReactNode } from "react";
 import type { Analysis } from "@/lib/ta";
 import { money } from "@/lib/ta";
 import type { Play, WatchItem } from "@/lib/plays";
-import { EXCLUDED_INDEX_PRODUCTS, PLAYS_AS_OF } from "@/lib/plays";
-import type { BarSource } from "@/lib/market";
+import { EXCLUDED_INDEX_PRODUCTS } from "@/lib/plays";
 import SetupBlock, { NoSetup, StatusChip } from "@/components/SetupBlock";
 
 export interface PlayView {
   play: Play;
   analysis: Analysis | null;
   closes: number[];
-  source: BarSource | null;
 }
 
 export interface WatchView {
   item: WatchItem;
   analysis: Analysis | null;
 }
-
-const SOURCE_LABEL: Record<BarSource, string> = {
-  supabase: "Live · Supabase",
-  yahoo: "Live · Yahoo Finance",
-  stooq: "Live · Stooq",
-  snapshot: `Snapshot · ${PLAYS_AS_OF} close`,
-};
 
 function pct(v: number | null, d = 0) {
   if (v === null || !Number.isFinite(v)) return "—";
@@ -81,8 +72,7 @@ function PlayCard({ v }: { v: PlayView }) {
             <div>
               <div className="font-mono text-[20px] font-semibold tabular-nums text-term-text">{money(A.ind.close)}</div>
               <div className="text-[10px] text-term-dim">
-                Close {A.ind.date} · {A.ind.offHi > -0.5 ? "at 52-week high" : `${pct(A.ind.offHi, 1)} from 52-wk high`}
-                {v.source && <> · {SOURCE_LABEL[v.source]}</>}
+                Close {A.ind.date} · {A.ind.offHi > -0.5 ? "at 52-week high" : `${pct(A.ind.offHi, 1)} from 52-wk high`} · Supabase
               </div>
             </div>
             <Spark values={v.closes} color={color} />
@@ -159,12 +149,28 @@ function PlayCard({ v }: { v: PlayView }) {
 export default function PlaysBoard({
   stocks,
   watchlist,
+  asOf,
+  generatedAt,
+  error,
   secondary,
 }: {
   stocks: PlayView[];
   watchlist: WatchView[];
+  asOf: string | null;
+  generatedAt: string | null;
+  error: string | null;
   secondary?: ReactNode;
 }) {
+  const computed = generatedAt
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).format(new Date(generatedAt)) + " ET"
+    : null;
   return (
     <div className="flex flex-col gap-3 p-2 text-[11px]">
       <div className="border border-term-cyan/40 bg-term-cyan/[0.06] px-2 py-1.5 leading-relaxed text-term-dim">
@@ -173,8 +179,10 @@ export default function PlaysBoard({
         <b className="text-term-red">stop loss</b> where the idea is wrong, and two take-profit targets (
         <b className="text-term-green">TP 1</b> and <b className="text-term-green">TP 2</b>). The checklist shows which
         conditions are <span className="text-term-green">confirmed</span> and which still{" "}
-        <span className="text-term-yellow">need to confirm</span> before the entry is valid. The written case is as of the{" "}
-        {PLAYS_AS_OF} close; the levels recompute from the latest bars.
+        <span className="text-term-yellow">need to confirm</span> before the entry is valid. The plays, and every word of
+        each case, are generated in Supabase by the compute-plays function from the{" "}
+        {asOf ?? "latest"} session{computed ? ` (last run ${computed})` : ""}; the levels on each card recompute from the
+        latest bars.
       </div>
 
       <section className="flex flex-col gap-2">
@@ -184,10 +192,20 @@ export default function PlaysBoard({
             Stock plays
           </h2>
           <p className="m-0 mt-0.5 text-term-dim">
-            Individual companies from the top-ranked sectors. Each one is above its 50- and 200-day averages and ranks high
-            on risk-adjusted momentum. No more than two names per sector.
+            Individual companies from the top three sectors on risk-adjusted momentum. Each one trades above its 50- and
+            200-day averages on at least $50M a day, and ranks highest in its sector on average 3/6/12-month return per unit
+            of volatility. Two names per sector.
           </p>
         </div>
+        {error && (
+          <div className="border border-term-red/50 bg-term-red/10 px-2 py-2 text-[11.5px]">Stock plays didn&apos;t load: {error}</div>
+        )}
+        {!error && stocks.length === 0 && (
+          <div className="border border-term-border px-2 py-3 text-[11.5px] text-term-dim">
+            No stock in the leading sectors passes every rule right now (above the 50- and 200-day averages, $50M+ a day,
+            a year of history), so there are no stock plays. The screen reruns every 30 minutes in the session.
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
           {stocks.map((v) => (
             <PlayCard key={v.play.symbol} v={v} />
@@ -208,7 +226,10 @@ export default function PlaysBoard({
 
       <section className="flex flex-col gap-1">
         <h2 className="m-0 text-[13px] font-bold uppercase tracking-wide text-term-text">Watchlist</h2>
-        <p className="m-0 text-term-dim">Names that nearly made the cut. The setup column is what the engine sees today.</p>
+        <p className="m-0 text-term-dim">
+          The next name in each leading sector, held back to keep two plays per sector. The setup column is what the engine
+          sees in the latest bars.
+        </p>
         <div className="overflow-x-auto border border-term-border">
           <table className="w-full min-w-[760px] border-collapse text-[11px]">
             <thead>
@@ -230,9 +251,7 @@ export default function PlaysBoard({
                 return (
                   <tr key={item.symbol} className="row-hover border-t border-term-border/60">
                     <td className="px-2 py-1 font-mono font-bold text-term-text">{item.symbol}</td>
-                    <td className={`px-2 py-1 ${item.kind === "stock" ? "text-term-cyan" : "text-term-amber"}`}>
-                      {item.kind === "stock" ? "Stock" : "ETF"}
-                    </td>
+                    <td className="px-2 py-1 text-term-cyan">Stock</td>
                     <td className="px-2 py-1 text-right font-mono tabular-nums">{A ? money(A.ind.close) : "—"}</td>
                     <td className="px-2 py-1">{s ? s.name : <span className="text-term-dim">No setup</span>}</td>
                     <td className="px-2 py-1 text-right font-mono tabular-nums text-term-cyan">{s ? money(s.entry) : ""}</td>
@@ -247,6 +266,13 @@ export default function PlaysBoard({
                   </tr>
                 );
               })}
+              {watchlist.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="px-2 py-2 text-term-dim">
+                    No watchlist names right now.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -305,6 +331,15 @@ export function PlaysSummary({ rows }: { rows: { label: string; items: PlayView[
                 </tr>
               );
             }),
+            ...(g.items.length === 0
+              ? [
+                  <tr key={`${g.label}-none`}>
+                    <td colSpan={7} className="px-2 py-2 text-term-dim">
+                      No stock passes the play rules right now.
+                    </td>
+                  </tr>,
+                ]
+              : []),
           ])}
         </tbody>
       </table>

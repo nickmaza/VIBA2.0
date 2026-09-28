@@ -1,16 +1,6 @@
-import { supabase, hasSupabase } from "./supabase";
-import {
-  demoHistory,
-  demoSnapshot,
-  demoSectors,
-  demoCurves,
-  demoStats,
-  demoPrices,
-  demoRefreshLog,
-  demoRotation,
-  demoSetups,
-  DEMO_AS_OF,
-} from "./demo-data";
+import { supabase } from "./supabase";
+import { INSTRUMENTS } from "./instruments";
+import { num, rows, selectAll } from "./db";
 import type {
   RegimeHistoryRow,
   RegimeSnapshotRow,
@@ -21,28 +11,71 @@ import type {
   RefreshLogRow,
   RotationStrengthRow,
   TradeSetupRow,
+  PipelineStatusRow,
 } from "./types";
 
 export interface TerminalData {
-  isLive: boolean;
-  asOf: string;
+  asOf: string | null; // session date of the latest regime score
+  fetchedAt: string; // when this page's data was read from Supabase
+  errors: string[]; // queries that failed; the affected panels render empty
   snapshot: RegimeSnapshotRow[];
   history: RegimeHistoryRow[];
   sectors: SectorRankingRow[];
   curves: BacktestCurvePointRow[];
   stats: BacktestStatRow[];
-  prices: RawPriceRow[]; // latest close per tracked symbol -- "everything we're tracking"
-  refreshLog: RefreshLogRow[]; // recent pipeline runs -- proof it's actually live
+  prices: RawPriceRow[]; // latest close per tracked instrument
+  refreshLog: RefreshLogRow[]; // recent pipeline runs
+  pipeline: PipelineStatusRow[]; // latest run of every job
   rotation: RotationStrengthRow[]; // daily rotation-strength series, oldest first
   setups: TradeSetupRow[]; // current candidate longs with entry/stop/targets
 }
 
-// PostgREST serializes `numeric` columns as JSON numbers, but be defensive: a
-// view column that arrives as a string would otherwise blow up `.toFixed()`.
-function num(v: unknown): number | null {
-  if (v === null || v === undefined || v === "") return null;
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
+function normalizeSnapshot(raw: Record<string, unknown>): RegimeSnapshotRow {
+  return {
+    index_symbol: String(raw.index_symbol) as RegimeSnapshotRow["index_symbol"],
+    score: num(raw.score) ?? 0,
+    bucket: String(raw.bucket) as RegimeSnapshotRow["bucket"],
+    as_of: String(raw.as_of),
+    updated_at: String(raw.updated_at),
+    z_trend: num(raw.z_trend),
+    z_breadth: num(raw.z_breadth),
+    z_vol: num(raw.z_vol),
+    z_credit: num(raw.z_credit),
+    z_curve: num(raw.z_curve),
+  };
+}
+
+function normalizeHistory(raw: Record<string, unknown>): RegimeHistoryRow {
+  return { d: String(raw.d), spy: num(raw.spy) ?? 0, qqq: num(raw.qqq) ?? 0, iwm: num(raw.iwm) ?? 0 };
+}
+
+function normalizeSector(raw: Record<string, unknown>): SectorRankingRow {
+  return {
+    rank: num(raw.rank) ?? 0,
+    ticker: String(raw.ticker),
+    name: String(raw.name),
+    score: num(raw.score) ?? 0,
+    r3: num(raw.r3) ?? 0,
+    r6: num(raw.r6) ?? 0,
+    r12: num(raw.r12) ?? 0,
+    as_of: String(raw.as_of),
+  };
+}
+
+function normalizeCurve(raw: Record<string, unknown>): BacktestCurvePointRow {
+  return { strategy: String(raw.strategy) as BacktestCurvePointRow["strategy"], month: String(raw.month), growth: num(raw.growth) ?? 1 };
+}
+
+function normalizeStat(raw: Record<string, unknown>): BacktestStatRow {
+  return {
+    strategy: String(raw.strategy) as BacktestStatRow["strategy"],
+    label: String(raw.label ?? raw.strategy),
+    cagr: num(raw.cagr) ?? 0,
+    ann_vol: num(raw.ann_vol) ?? 0,
+    sharpe: num(raw.sharpe) ?? 0,
+    max_dd: num(raw.max_dd) ?? 0,
+    total_return: num(raw.total_return) ?? 0,
+  };
 }
 
 function normalizePrice(raw: Record<string, unknown>): RawPriceRow {
@@ -108,67 +141,72 @@ function normalizeSetup(raw: Record<string, unknown>): TradeSetupRow {
 }
 
 /**
- * Server-side fetch of everything the terminal needs for first paint.
- * Falls back to the bundled demo dataset whenever Supabase isn't configured
- * yet, or a query errors -- the UI marks the difference with a DEMO badge.
+ * Server-side read of everything the terminal renders on first paint, straight
+ * from the Supabase tables the pipeline keeps current. There is no fallback
+ * dataset: a query that fails is reported in `errors` and its panels render
+ * empty, so nothing on screen is ever made up.
  */
 export async function getTerminalData(): Promise<TerminalData> {
-  const demoFallback: TerminalData = {
-    isLive: false,
-    asOf: DEMO_AS_OF,
-    snapshot: demoSnapshot,
-    history: demoHistory,
-    sectors: demoSectors,
-    curves: demoCurves,
-    stats: demoStats,
-    prices: demoPrices,
-    refreshLog: demoRefreshLog,
-    rotation: demoRotation,
-    setups: demoSetups,
-  };
-
-  if (!hasSupabase || !supabase) {
-    return demoFallback;
-  }
-
-  try {
-    const [snapRes, histRes, secRes, curveRes, statRes, priceRes, logRes, rotRes, setupRes] =
-      await Promise.all([
-      supabase.from("regime_snapshot").select("*").order("index_symbol"),
-      supabase.from("regime_history").select("*").order("d"),
-      supabase.from("sector_rankings").select("*").order("rank"),
-      supabase.from("backtest_curves").select("*").order("month"),
-      supabase.from("backtest_stats").select("*"),
-      supabase.from("latest_prices").select("*").order("symbol"),
-      supabase.from("refresh_log").select("*").order("refreshed_at", { ascending: false }).limit(40),
-      supabase.from("rotation_strength").select("*").order("d"),
-      supabase.from("trade_setups").select("*").order("strength", { ascending: false }),
-    ]);
-
-    const anyError =
-      snapRes.error || histRes.error || secRes.error || curveRes.error || statRes.error;
-    if (anyError || !snapRes.data?.length) {
-      // Table missing / empty (e.g. schema not applied yet) -- fall back rather than
-      // render a blank terminal.
-      return demoFallback;
+  const errors: string[] = [];
+  async function load<T>(label: string, run: () => Promise<T[]>): Promise<T[]> {
+    try {
+      return await run();
+    } catch (e) {
+      errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
+      return [];
     }
-
-    return {
-      isLive: true,
-      asOf: snapRes.data[0]?.as_of ?? DEMO_AS_OF,
-      snapshot: snapRes.data as RegimeSnapshotRow[],
-      history: (histRes.data ?? []) as RegimeHistoryRow[],
-      sectors: (secRes.data ?? []) as SectorRankingRow[],
-      curves: (curveRes.data ?? []) as BacktestCurvePointRow[],
-      stats: (statRes.data ?? []) as BacktestStatRow[],
-      // These two are supplementary (tracked-instruments list, pipeline health) --
-      // a hiccup fetching them shouldn't blank the whole terminal, so default to [].
-      prices: ((priceRes.data ?? []) as Record<string, unknown>[]).map(normalizePrice),
-      refreshLog: (logRes.data ?? []) as RefreshLogRow[],
-      rotation: ((rotRes.data ?? []) as Record<string, unknown>[]).map(normalizeRotation),
-      setups: ((setupRes.data ?? []) as Record<string, unknown>[]).map(normalizeSetup),
-    };
-  } catch {
-    return demoFallback;
   }
+  const [snapshot, history, sectors, curves, stats, prices, refreshLog, rotation, setups, pipeline] = await Promise.all([
+    load("regime_snapshot", async () => (await rows(supabase.from("regime_snapshot").select("*").order("index_symbol"))).map(normalizeSnapshot)),
+    load("regime_history", async () =>
+      (await selectAll<Record<string, unknown>>((a, b) => supabase.from("regime_history").select("d,spy,qqq,iwm").order("d").range(a, b))).map(
+        normalizeHistory,
+      ),
+    ),
+    load("sector_rankings", async () => (await rows(supabase.from("sector_rankings").select("*").order("rank"))).map(normalizeSector)),
+    load("backtest_curves", async () =>
+      (await selectAll<Record<string, unknown>>((a, b) => supabase.from("backtest_curves").select("*").order("month").order("strategy").range(a, b))).map(
+        normalizeCurve,
+      ),
+    ),
+    load("backtest_stats", async () => (await rows(supabase.from("backtest_stats").select("*"))).map(normalizeStat)),
+    load("latest_prices", async () =>
+      (await rows(supabase.from("latest_prices").select("*").in("symbol", INSTRUMENTS.map((i) => i.symbol)).order("symbol"))).map(normalizePrice),
+    ),
+    load("refresh_log", async () =>
+      (await rows(supabase.from("refresh_log").select("*").order("refreshed_at", { ascending: false }).limit(60))) as unknown as RefreshLogRow[],
+    ),
+    load("rotation_strength", async () =>
+      (await selectAll<Record<string, unknown>>((a, b) => supabase.from("rotation_strength").select("*").order("d").range(a, b))).map(normalizeRotation),
+    ),
+    load("trade_setups", async () =>
+      (await rows(supabase.from("trade_setups").select("*").order("strength", { ascending: false }))).map(normalizeSetup),
+    ),
+    load("pipeline_status", async () =>
+      (await rows(supabase.from("pipeline_status").select("*").order("source"))).map((r) => ({
+        source: String(r.source),
+        refreshed_at: String(r.refreshed_at),
+        ok: Boolean(r.ok),
+        note: r.note == null ? null : String(r.note),
+        runs_24h: num(r.runs_24h) ?? 0,
+        failures_24h: num(r.failures_24h) ?? 0,
+      })),
+    ),
+  ]);
+
+  return {
+    asOf: snapshot[0]?.as_of ?? null,
+    fetchedAt: new Date().toISOString(),
+    errors,
+    snapshot,
+    history,
+    sectors,
+    curves,
+    stats,
+    prices,
+    refreshLog,
+    pipeline,
+    rotation,
+    setups,
+  };
 }

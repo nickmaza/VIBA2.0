@@ -44,7 +44,7 @@ export interface RefreshLogRow {
 }
 
 export interface RegimeHistoryRow {
-  d: string; // ISO date (weekly)
+  d: string; // ISO date (one row per trading session)
   spy: number;
   qqq: number;
   iwm: number;
@@ -133,6 +133,16 @@ export interface TradeSetupRow {
   r12: number | null;
   as_of: string;
   note: string | null;
+}
+
+/** Latest run of one pipeline job, with its last-24-hour tallies (pipeline_status view). */
+export interface PipelineStatusRow {
+  source: string;
+  refreshed_at: string;
+  ok: boolean;
+  note: string | null;
+  runs_24h: number;
+  failures_24h: number;
 }
 
 export interface RefreshMeta {

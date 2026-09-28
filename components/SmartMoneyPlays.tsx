@@ -57,10 +57,10 @@ function EvidenceList({ items }: { items: Evidence[] }) {
 }
 
 function InsiderLine({ s }: { s: InsiderSummary | undefined }) {
-  if (!s) return <span className="text-term-dim">Checking SEC Form 4 filings…</span>;
+  if (!s) return <span className="text-term-dim">Reading SEC Form 4 insider trades…</span>;
   if (s.error) return <span className="text-term-dim">Insiders: {s.error}</span>;
   if (s.buys.length === 0 && s.sells.length === 0)
-    return <span className="text-term-dim">Insiders: no open-market buys or sells in {s.windowDays} days ({s.filingsChecked} Form 4s checked).</span>;
+    return <span className="text-term-dim">Insiders: no open-market buys or sells in the last {s.windowDays} days of Form 4 filings.</span>;
   return (
     <span className={s.buys.length ? "text-term-green" : "text-term-dim"}>
       Insiders ({s.windowDays}d):{" "}
@@ -95,7 +95,7 @@ function PlayCard({ p, insider }: { p: SmartMoneyPlay; insider: InsiderSummary |
         <div>
           <div className="font-mono text-[20px] font-semibold tabular-nums text-term-text">{money(p.flow.last)}</div>
           <div className="text-[10px] text-term-dim">
-            Close {p.flow.date} · {p.source === "snapshot" ? "snapshot bars" : `live · ${p.source}`}
+            Close {p.flow.date} · Supabase
           </div>
         </div>
         <Spark values={p.closes} />
@@ -198,11 +198,12 @@ export default function SmartMoneyPlays() {
       {data && data.plays.length > 0 && (
         <>
           <div className="text-[10.5px] text-term-dim">
-            Bars through {data.barsAsOf} · options &amp; congress feed as of {data.feedAsOf} ({data.feedSource}) · insider data from SEC EDGAR
+            Computed in Supabase from bars through {data.barsAsOf}, the {data.feedAsOf} CBOE options session, SEC Form 4
+            insider filings and STOCK Act disclosures
           </div>
           <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
             {data.plays.map((p) => (
-              <PlayCard key={p.symbol} p={p} insider={ins.loading ? undefined : insBy.get(p.symbol) ?? { symbol: p.symbol, windowDays: 90, filingsChecked: 0, buys: [], sells: [], buyValue: 0, sellValue: 0, error: ins.error ?? "No SEC response" }} />
+              <PlayCard key={p.symbol} p={p} insider={ins.loading ? undefined : insBy.get(p.symbol) ?? { symbol: p.symbol, windowDays: 90, filings: 0, buys: [], sells: [], buyValue: 0, sellValue: 0, error: ins.error ?? "no Form 4 data" }} />
             ))}
           </div>
         </>

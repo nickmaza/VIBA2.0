@@ -6,12 +6,13 @@ import { analyze, isAnalysis, money, type Analysis, type Bars } from "@/lib/ta";
 import Panel, { Chip } from "@/components/Panel";
 import SetupBlock, { NoSetup, StatusChip } from "@/components/SetupBlock";
 
-type Source = "supabase" | "yahoo" | "stooq" | "snapshot";
 interface Loaded {
   symbol: string;
   name: string | null;
   bars: Bars;
-  source: Source;
+  source: "supabase";
+  asOf: string;
+  refreshed?: boolean; // fetch-bars pulled fresh bars from the market for this request
 }
 interface Hit {
   symbol: string;
@@ -59,15 +60,7 @@ function fmtVol(v: number) {
  * the 21/50/200-day averages, and the trade plan (entry, stop, TP1, TP2) for
  * every setup it detects.
  */
-export default function ChartSearch({
-  defaultSymbol,
-  quick,
-  snapshotDate,
-}: {
-  defaultSymbol: string;
-  quick: string[];
-  snapshotDate: string;
-}) {
+export default function ChartSearch({ defaultSymbol, quick }: { defaultSymbol: string; quick: string[] }) {
   // ---------- search ----------
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
@@ -346,14 +339,7 @@ export default function ChartSearch({
   const last = b ? b.c[b.c.length - 1] : 0;
   const prev = b && b.c.length > 1 ? b.c[b.c.length - 2] : last;
   const chg = prev ? (last / prev - 1) * 100 : 0;
-  const sourceLabel =
-    data?.source === "snapshot"
-      ? `Snapshot · ${snapshotDate} close`
-      : data?.source === "supabase"
-      ? "Live · Supabase"
-      : data?.source === "stooq"
-      ? "Live · Stooq"
-      : "Live · Yahoo Finance";
+  const sourceLabel = data ? `Supabase · raw_prices${data.refreshed ? " · refreshed now" : ""}` : "";
 
   const levelRows: { k: string; t: string; p: number; kind: "r" | "s" | "c" | "m" }[] = [];
   if (A) {
@@ -441,14 +427,16 @@ export default function ChartSearch({
             </ul>
           )}
         </form>
-        <div className="mt-2 flex flex-wrap items-center gap-1 text-[10.5px] text-term-dim">
-          <span className="mr-1">Plays:</span>
-          {quick.map((s) => (
-            <button key={s} type="button" onClick={() => load(s)} className="border border-term-border px-1.5 font-mono text-term-text hover:border-term-cyan hover:text-term-cyan">
-              {s}
-            </button>
-          ))}
-        </div>
+        {quick.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1 text-[10.5px] text-term-dim">
+            <span className="mr-1">Plays:</span>
+            {quick.map((s) => (
+              <button key={s} type="button" onClick={() => load(s)} className="border border-term-border px-1.5 font-mono text-term-text hover:border-term-cyan hover:text-term-cyan">
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </Panel>
 
       {error && (

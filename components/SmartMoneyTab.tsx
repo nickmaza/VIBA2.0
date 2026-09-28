@@ -204,7 +204,8 @@ function OptionsTables({ d }: { d: SmartMoneyPayload }) {
       <div className="flex flex-wrap items-center gap-3 border-b border-term-border px-2 py-2">
         <span className="font-mono text-[18px] font-bold text-term-text">{m.ratio.toFixed(2)}×</span>
         <span className="text-term-dim">
-          call vs put premium across {m.names} most active large caps · {fmtBig(m.callPremium)} calls / {fmtBig(m.putPremium)} puts
+          call vs put premium across {m.names} optionable library stocks ({d.feedAsOf} session) · {fmtBig(m.callPremium)} calls /{" "}
+          {fmtBig(m.putPremium)} puts
         </span>
         <span className="relative block h-2 w-full bg-term-red/60">
           <span className="absolute inset-y-0 left-0 bg-term-green/80" style={{ width: `${callShare}%` }} />
@@ -220,7 +221,7 @@ function OptionsTables({ d }: { d: SmartMoneyPayload }) {
                 <th className="px-2 py-1 text-right font-normal">Call $</th>
                 <th className="px-2 py-1 text-right font-normal">Put $</th>
                 <th className="px-2 py-1 text-right font-normal">Skew</th>
-                <th className="px-2 py-1 text-right font-normal">Call vol vs 10d</th>
+                <th className="px-2 py-1 text-right font-normal">Call vol vs avg</th>
                 <th className="px-2 py-1 font-normal">Read</th>
               </tr>
             </thead>
@@ -235,7 +236,9 @@ function OptionsTables({ d }: { d: SmartMoneyPayload }) {
                   <td className="px-2 py-1 text-right font-mono tabular-nums text-term-green">{fmtBig(o.callPremium)}</td>
                   <td className="px-2 py-1 text-right font-mono tabular-nums text-term-red">{fmtBig(o.putPremium)}</td>
                   <td className="px-2 py-1 text-right font-mono tabular-nums">{o.read.skew.toFixed(1)}×</td>
-                  <td className="px-2 py-1 text-right font-mono tabular-nums">{o.read.callVolRatio.toFixed(1)}×</td>
+                  <td className="px-2 py-1 text-right font-mono tabular-nums">
+                    {d.optionsHistoryDays > 0 ? `${o.read.callVolRatio.toFixed(1)}×` : "—"}
+                  </td>
                   <td className="whitespace-nowrap px-2 py-1 text-term-dim">{o.read.label}</td>
                 </tr>
               ))}
@@ -274,6 +277,12 @@ function OptionsTables({ d }: { d: SmartMoneyPayload }) {
             </tbody>
           </table>
         </div>
+      </div>
+      <div className="border-t border-term-border px-2 py-1.5 text-[10px] leading-relaxed text-term-dim">
+        Premium = contracts traded × last trade price × 100, summed over every listed contract in each CBOE delayed chain.
+        {d.optionsHistoryDays > 0
+          ? ` Volume and open-interest averages cover the last ${Math.min(10, d.optionsHistoryDays)} stored session${d.optionsHistoryDays === 1 ? "" : "s"}.`
+          : " Volume and open-interest averages start once a second session is stored, so today's read rests on premium skew alone."}
       </div>
     </div>
   );
@@ -327,9 +336,10 @@ function StockFlows({ d }: { d: SmartMoneyPayload }) {
 
 function Insiders({ symbols }: { symbols: string[] }) {
   const { data, error, loading } = useInsiders(symbols);
-  if (loading) return <Loading what="SEC Form 4 insider filings" />;
-  if (error || !data) return <div className="px-2 py-2 text-[11px] text-term-dim">SEC EDGAR didn&apos;t respond{error ? `: ${error}` : ""}. Insider data will retry on the next visit.</div>;
+  if (loading) return <Loading what="SEC Form 4 insider trades" />;
+  if (error || !data) return <div className="px-2 py-2 text-[11px] text-term-red">Insider data didn&apos;t load{error ? `: ${error}` : ""}.</div>;
   const rows = data.results as InsiderSummary[];
+  const cov = data.coverage;
   const buys = rows.flatMap((r) => (r.buys ?? []).map((b) => ({ ...b, symbol: r.symbol }))).sort((a, b) => b.date.localeCompare(a.date));
   return (
     <div className="text-[11px]">
@@ -391,8 +401,15 @@ function Insiders({ symbols }: { symbols: string[] }) {
         </div>
       )}
       <div className="border-t border-term-border px-2 py-1.5 text-[10px] text-term-dim">
-        Last 90 days of SEC Form 4 filings. Only open-market purchases (code P) and sales (code S) count; option exercises,
-        grants and gifts are ignored.
+        Last 90 days of SEC Form 4 filings, read from EDGAR by the sync-insiders function. Only open-market purchases (code
+        P) and sales (code S) count; option exercises, grants and gifts are ignored.
+        {cov && cov.lastFiled && (
+          <>
+            {" "}
+            Filings parsed: {cov.firstFiled} to {cov.lastFiled}
+            {cov.pending > 0 ? ` (${cov.pending.toLocaleString("en-US")} older filings still being processed, newest first)` : ""}.
+          </>
+        )}
       </div>
     </div>
   );
@@ -400,9 +417,9 @@ function Insiders({ symbols }: { symbols: string[] }) {
 
 function Funds() {
   const { data, error, loading } = useFunds();
-  if (loading) return <Loading what="13F filings from SEC EDGAR" />;
-  if (error || !data) return <div className="px-2 py-2 text-[11px] text-term-dim">SEC EDGAR didn&apos;t respond{error ? `: ${error}` : ""}. Fund data will retry on the next visit.</div>;
-  if (data.funds.length === 0) return <div className="px-2 py-2 text-[11px] text-term-dim">No 13F filings could be read right now. {data.errors.join(" · ")}</div>;
+  if (loading) return <Loading what="13F fund positioning" />;
+  if (error || !data) return <div className="px-2 py-2 text-[11px] text-term-red">13F data didn&apos;t load{error ? `: ${error}` : ""}.</div>;
+  if (data.funds.length === 0) return <div className="px-2 py-2 text-[11px] text-term-dim">No 13F filings stored yet. {data.errors.join(" · ")}</div>;
   return (
     <div className="text-[11px]">
       {data.consensus.length > 0 && (
@@ -478,6 +495,7 @@ function Funds() {
       <div className="border-t border-term-border px-2 py-1.5 text-[10px] text-term-dim">
         13F filings show US stock holdings at quarter end and are due 45 days later, so they describe positioning up to
         ~4 months old. Changes of 10% or more in share count count as added or trimmed. Options positions are excluded.
+        Read from SEC EDGAR daily by the sync-13f function{data.asOf ? `; latest filing ${data.asOf}` : ""}.
         {data.errors.length > 0 && ` Unavailable: ${data.errors.join("; ")}.`}
       </div>
     </div>
@@ -505,18 +523,27 @@ function Congress({ d }: { d: SmartMoneyPayload }) {
                 <td className="px-2 py-1 font-mono font-bold">{t.symbol}</td>
                 <td className={`px-2 py-1 font-semibold ${t.side === "BUY" ? "text-term-green" : "text-term-red"}`}>{t.side}</td>
                 <td className="px-2 py-1">{t.politician}</td>
-                <td className="px-2 py-1 text-term-dim">{t.party}</td>
+                <td className="px-2 py-1 text-term-dim">{t.party || "—"}</td>
                 <td className="px-2 py-1 font-mono text-term-dim">{t.amount}</td>
                 <td className="px-2 py-1 font-mono text-term-dim">traded {t.traded}</td>
-                <td className="px-2 py-1 font-mono text-term-dim">disclosed {t.disclosed}</td>
+                <td className="px-2 py-1 font-mono text-term-dim">
+                  {t.url ? (
+                    <a href={t.url} target="_blank" rel="noreferrer" className="text-term-cyan hover:underline">
+                      disclosed {t.disclosed}
+                    </a>
+                  ) : (
+                    <>disclosed {t.disclosed}</>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <div className="border-t border-term-border px-2 py-1.5 text-[10px] text-term-dim">
-        Source: Tip Ranks STOCK Act disclosures (via Robinhood), last {d.congressWindowDays} days, feed as of {d.feedAsOf}. Amounts are
-        disclosed ranges and trades are reported up to 45 days late, so treat this as history, not a live signal.
+        Source: Senate eFD and House Clerk periodic transaction reports, parsed by the sync-congress function; last{" "}
+        {d.congressWindowDays} days of disclosures. Amounts are disclosed ranges and trades are reported up to 45 days late,
+        so treat this as history, not a live signal.
       </div>
     </div>
   );
@@ -525,7 +552,7 @@ function Congress({ d }: { d: SmartMoneyPayload }) {
 /** The Smart Money tab: where money is moving and how the big players are positioned. */
 export default function SmartMoneyTab() {
   const { data: d, error, loading } = useSmartMoney();
-  if (loading) return <Panel title="Smart Money"><Loading what="money flow across 27 asset classes and the most active large caps" /></Panel>;
+  if (loading) return <Panel title="Smart Money"><Loading what="the smart money report" /></Panel>;
   if (error || !d) return <Panel title="Smart Money"><div className="px-2 py-3 text-[11.5px] text-term-red">Smart money data didn&apos;t load{error ? `: ${error}` : ""}.</div></Panel>;
   const insiderSymbols = Array.from(new Set([...d.plays.map((p) => p.symbol), ...d.stockFlows.slice(0, 10).map((s) => s.symbol)])).slice(0, 10);
   return (
@@ -535,7 +562,7 @@ export default function SmartMoneyTab() {
         controls={
           <>
             <Chip active>bars {d.barsAsOf}</Chip>
-            <Chip>feed {d.feedAsOf}</Chip>
+            <Chip>options {d.feedAsOf}</Chip>
           </>
         }
         bodyClassName="p-2"
@@ -572,7 +599,7 @@ export default function SmartMoneyTab() {
         </div>
       </div>
 
-      <Panel title="Options positioning" controls={<Chip>premium traded · feed {d.feedAsOf}</Chip>}>
+      <Panel title="Options positioning" controls={<Chip>premium traded · {d.feedAsOf}</Chip>}>
         <OptionsTables d={d} />
       </Panel>
 
@@ -598,7 +625,9 @@ export default function SmartMoneyTab() {
         <span className="font-semibold text-term-text">How to use this.</span> None of these signals is proof on its own:
         volume can come from index rebalancing, call buying can be hedging, insiders sell for personal reasons, and 13F and
         congressional data arrive weeks late. The useful read is agreement, when several independent signals point the same
-        way. Sources: price and volume ({d.sources.bars}), {d.sources.options}, {d.sources.congress}, SEC EDGAR.
+        way. Sources: price and volume ({d.sources.bars}), {d.sources.options}, {d.sources.congress}, SEC EDGAR Form 4 and
+        13F filings. All of it is fetched and computed in Supabase; this report was generated{" "}
+        {new Date(d.generatedAt).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" })} ET.
       </footer>
     </div>
   );

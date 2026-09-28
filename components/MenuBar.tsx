@@ -6,7 +6,7 @@ import RealtimeRefresher from "@/components/RealtimeRefresher";
  * Workstation-style menu bar: brand, live status, clock, green accent stripe.
  * Section navigation lives in the tab strip right below it (Workspace).
  */
-export default function MenuBar({ isLive, asOf }: { isLive: boolean; asOf: string }) {
+export default function MenuBar({ errors, asOf }: { errors: string[]; asOf: string | null }) {
   return (
     <div className="sticky top-0 z-20 border-b border-term-border bg-[#1a1a1a]">
       <div className="flex h-[26px] items-center gap-4 px-2">
@@ -18,7 +18,7 @@ export default function MenuBar({ isLive, asOf }: { isLive: boolean; asOf: strin
         </span>
         <div className="ml-auto flex items-center gap-3 whitespace-nowrap text-term-dim">
           <RealtimeRefresher />
-          <LiveIndicator isLive={isLive} asOf={asOf} />
+          <LiveIndicator errors={errors} asOf={asOf} />
           <Clock />
         </div>
       </div>

@@ -15,10 +15,18 @@ function fmtTs(iso: string) {
 }
 
 const SOURCE_LABEL: Record<string, string> = {
-  scheduled_trigger_ingest: "INGEST · Robinhood → raw_prices",
-  "ingest-prices": "INGEST · raw_prices",
+  "sync-prices": "SYNC · prices (Yahoo Finance) → raw_prices",
+  "sync-options": "SYNC · option chains (CBOE) → options_daily",
+  "sync-insiders": "SYNC · SEC Form 4 → insider_trades",
+  "sync-13f": "SYNC · SEC 13F → fund positioning",
+  "sync-congress": "SYNC · STOCK Act filings → congress_trades",
+  "sync-directory": "SYNC · US listings directory",
   "compute-regime-score": "COMPUTE · regime score",
   "compute-sector-rotation": "COMPUTE · sector rotation",
+  "compute-trade-setups": "COMPUTE · trade setups",
+  "compute-plays": "COMPUTE · stock plays",
+  "compute-smart-money": "COMPUTE · smart money",
+  "compute-backtest": "COMPUTE · backtest",
 };
 
 /**
