@@ -11,12 +11,14 @@ create or replace function private.ny_now()
 returns timestamp
 language sql
 stable
+set search_path = ''
 as $$ select now() at time zone 'America/New_York' $$;
 
 create or replace function private.ny_weekday()
 returns boolean
 language sql
 stable
+set search_path = ''
 as $$ select extract(isodow from private.ny_now()) between 1 and 5 $$;
 
 -- 09:30-16:00 New York time on weekdays
@@ -24,6 +26,7 @@ create or replace function private.market_open()
 returns boolean
 language sql
 stable
+set search_path = ''
 as $$
   select private.ny_weekday()
      and private.ny_now()::time >= time '09:30'
@@ -36,6 +39,7 @@ create or replace function private.last_close()
 returns timestamptz
 language sql
 stable
+set search_path = ''
 as $$
   select (max(g.d) + interval '16 hours 30 minutes') at time zone 'America/New_York'
     from generate_series((private.ny_now()::date - 7)::timestamp, private.ny_now()::date::timestamp, interval '1 day') as g(d)
@@ -48,6 +52,7 @@ create or replace function private.stale_prices()
 returns integer
 language sql
 stable
+set search_path = ''
 as $$
   select count(*)::integer from public.symbol_meta
    where active and (prices_synced_at is null or prices_synced_at < private.last_close())
@@ -57,6 +62,7 @@ create or replace function private.stale_options()
 returns integer
 language sql
 stable
+set search_path = ''
 as $$
   select count(*)::integer from public.symbol_meta
    where active
@@ -69,6 +75,7 @@ create or replace function private.minutes_since_close()
 returns integer
 language sql
 stable
+set search_path = ''
 as $$ select greatest(1, floor(extract(epoch from now() - private.last_close()) / 60))::integer $$;
 
 -- ---------------------------------------------------------------- old jobs
