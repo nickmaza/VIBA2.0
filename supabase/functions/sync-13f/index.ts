@@ -11,9 +11,12 @@
 // Option positions (put/call rows) are excluded: they are hedges as often as bets.
 //
 // Body: wait (optional). Auth: x-refresh-secret. Called by pg_cron daily
-// (13Fs arrive quarterly, 45 days after quarter end).
+// (13Fs arrive quarterly, 45 days after quarter end). If SEC refuses requests
+// (rate limits), the run is logged as failed, the report is still rebuilt from
+// the filings already stored, and pg_cron retries hourly (private.retry_due).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { sb, authorized, json, logRun, httpGet, withRetry, readBody, runInBackground, sleep, getConfig } from "../_shared/common.ts";
+import { sb, authorized, json, logRun, withRetry, readBody, runInBackground } from "../_shared/common.ts";
+import { secGet, secError } from "../_shared/sec.ts";
 
 const TRACKED_FUNDS: { cik: number; name: string; manager: string }[] = [
   { cik: 1067983, name: "Berkshire Hathaway", manager: "Warren Buffett / Greg Abel" },
@@ -29,12 +32,6 @@ const TRACKED_FUNDS: { cik: number; name: string; manager: string }[] = [
   { cik: 1029160, name: "Soros Fund Management", manager: "" },
   { cik: 1061768, name: "Baupost Group", manager: "Seth Klarman" },
 ];
-
-let UA = "VIBA Terminal research dashboard";
-async function sec(url: string) {
-  await sleep(150); // well under SEC's 10 req/s
-  return httpGet(url, { ua: UA, headers: { Accept: "application/json, application/xml, text/xml, */*" }, timeoutMs: 30000 });
-}
 
 // ---------- small XML helpers (13F info tables are flat) ----------
 function tag(xml: string, name: string): string | null {
@@ -71,22 +68,23 @@ interface Holding {
   shares: number;
 }
 
-async function tickerMap(): Promise<Map<string, string>> {
+/** Issuer name -> ticker from SEC company_tickers.json; null when SEC did not answer. */
+async function tickerMap(): Promise<{ names: Map<string, string> | null; error: string | null }> {
+  const r = await secGet("https://www.sec.gov/files/company_tickers.json");
+  if (r.status !== 200) return { names: null, error: secError("SEC company_tickers.json", r) };
   const byName = new Map<string, string>();
-  const r = await sec("https://www.sec.gov/files/company_tickers.json");
-  if (r.status === 200) {
-    const j = JSON.parse(r.text) as Record<string, { ticker: string; title: string }>;
-    for (const t of Object.values(j)) {
-      const k = normName(t.title);
-      if (k && !byName.has(k)) byName.set(k, t.ticker.toUpperCase().replace(/-/g, "."));
-    }
+  const j = JSON.parse(r.text) as Record<string, { ticker: string; title: string }>;
+  for (const t of Object.values(j)) {
+    const k = normName(t.title);
+    if (k && !byName.has(k)) byName.set(k, t.ticker.toUpperCase().replace(/-/g, "."));
   }
-  return byName;
+  if (byName.size < 5000) return { names: null, error: `SEC company_tickers.json looks truncated (${byName.size} names)` };
+  return { names: byName, error: null };
 }
 
 async function syncFund(f: { cik: number; name: string; manager: string }, names: Map<string, string>) {
-  const sub = await sec(`https://data.sec.gov/submissions/CIK${String(f.cik).padStart(10, "0")}.json`);
-  if (sub.status !== 200) throw new Error(`${f.name}: submissions HTTP ${sub.status}`);
+  const sub = await secGet(`https://data.sec.gov/submissions/CIK${String(f.cik).padStart(10, "0")}.json`);
+  if (sub.status !== 200) throw new Error(secError(`${f.name} submissions`, sub));
   const recent = JSON.parse(sub.text)?.filings?.recent;
   if (!recent) throw new Error(`${f.name}: no filings`);
   const picks: number[] = [];
@@ -97,13 +95,13 @@ async function syncFund(f: { cik: number; name: string; manager: string }, names
     const { data: have } = await sb.from("fund_filings").select("accession").eq("fund_cik", f.cik).eq("accession", accession).maybeSingle();
     if (have) continue;
     const acc = accession.replace(/-/g, "");
-    const idx = await sec(`https://www.sec.gov/Archives/edgar/data/${f.cik}/${acc}/index.json`);
-    if (idx.status !== 200) continue;
+    const idx = await secGet(`https://www.sec.gov/Archives/edgar/data/${f.cik}/${acc}/index.json`);
+    if (idx.status !== 200) throw new Error(secError(`${f.name} ${accession} index`, idx));
     const items = (JSON.parse(idx.text)?.directory?.item ?? []) as { name: string }[];
     const info = items.find((x) => /\.xml$/i.test(x.name) && !/primary_doc/i.test(x.name));
     if (!info) continue;
-    const x = await sec(`https://www.sec.gov/Archives/edgar/data/${f.cik}/${acc}/${info.name}`);
-    if (x.status !== 200) continue;
+    const x = await secGet(`https://www.sec.gov/Archives/edgar/data/${f.cik}/${acc}/${info.name}`);
+    if (x.status !== 200) throw new Error(secError(`${f.name} ${accession} information table`, x));
     const map = new Map<string, Holding>();
     for (const b of blocks(x.text, "infoTable")) {
       if (tag(b, "putCall")) continue;
@@ -245,22 +243,38 @@ async function buildReport() {
 
 async function run() {
   const t0 = Date.now();
-  UA = await getConfig("sec_user_agent", UA);
-  const names = await tickerMap();
   let downloaded = 0;
+  let checked = 0;
   const errs: string[] = [];
-  for (const f of TRACKED_FUNDS) {
-    if (Date.now() - t0 > 100000) break;
-    try {
-      downloaded += await syncFund(f, names);
-    } catch (e) {
-      errs.push(e instanceof Error ? e.message : String(e));
+  // Holdings are stored with their tickers, so new filings are only read when
+  // the SEC name -> ticker map is available.
+  const { names, error } = await tickerMap();
+  if (!names) errs.push(`${error}; filings not checked`);
+  else {
+    for (const f of TRACKED_FUNDS) {
+      if (Date.now() - t0 > 100_000) {
+        errs.push(`time budget reached after ${checked} funds`);
+        break;
+      }
+      try {
+        downloaded += await syncFund(f, names);
+        checked++;
+      } catch (e) {
+        errs.push(e instanceof Error ? e.message : String(e));
+      }
     }
   }
   const rep = await buildReport();
-  const note = `funds=${rep.funds}/${TRACKED_FUNDS.length} new_filings=${downloaded} consensus=${rep.consensus}${errs.length ? ` errors=[${errs.join("; ")}]` : ""} ${((Date.now() - t0) / 1000).toFixed(1)}s`;
-  await logRun("sync-13f", rep.funds > 0, note);
-  return { ok: true, note };
+  const ok = rep.funds > 0 && errs.length === 0;
+  // once SEC is refusing, the remaining funds are skipped; list them as one entry
+  const skipped = errs.filter((e) => e.endsWith("skipped (SEC rate limit)")).length;
+  const shown = errs.filter((e) => !e.endsWith("skipped (SEC rate limit)"));
+  if (skipped) shown.push(`${skipped} more fund${skipped === 1 ? "" : "s"} skipped while SEC was rate-limiting`);
+  const note = `funds=${rep.funds}/${TRACKED_FUNDS.length} checked=${checked} new_filings=${downloaded} consensus=${rep.consensus}${
+    shown.length ? ` errors=[${shown.join("; ")}]` : ""
+  } ${((Date.now() - t0) / 1000).toFixed(1)}s`;
+  await logRun("sync-13f", ok, note);
+  return { ok, note };
 }
 
 Deno.serve(async (req: Request) => {

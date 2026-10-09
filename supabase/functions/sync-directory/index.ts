@@ -7,7 +7,9 @@
 //   * SEC company_tickers.json: CIK for every library stock, so Form 4
 //     filings can be matched to it (sync-insiders)
 //
-// Runs weekly from pg_cron. Auth: x-refresh-secret.
+// Runs weekly from pg_cron. When Nasdaq or SEC refuses a request even after
+// retries, the run is logged as failed (nothing already stored is removed)
+// and pg_cron retries it hourly (private.retry_due). Auth: x-refresh-secret.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   sb,
@@ -17,10 +19,12 @@ import {
   httpGet,
   upsertChunks,
   withRetry,
-  getConfig,
   readBody,
   runInBackground,
+  sleep,
 } from "../_shared/common.ts";
+import type { Fetched } from "../_shared/common.ts";
+import { secGet, secError } from "../_shared/sec.ts";
 
 const NASDAQ_HEADERS = {
   Accept: "application/json, text/plain, */*",
@@ -28,6 +32,19 @@ const NASDAQ_HEADERS = {
   Referer: "https://www.nasdaq.com/",
 };
 const SYMBOL_RE = /^[A-Z]{1,5}([./][A-Z]{1,2})?$/;
+const STOCKS_URL = "https://api.nasdaq.com/api/screener/stocks?tableonly=true&download=true";
+const ETFS_URL = "https://api.nasdaq.com/api/screener/etf?tableonly=true&download=true";
+
+/** Nasdaq's screener API now and then answers with an error or an empty body; try three times. */
+async function nasdaqGet(url: string): Promise<Fetched> {
+  let r: Fetched = { status: -1, text: "" };
+  for (const wait of [0, 3_000, 10_000]) {
+    if (wait) await sleep(wait);
+    r = await httpGet(url, { headers: NASDAQ_HEADERS, timeoutMs: 30_000 });
+    if (r.status === 200 && r.text.length > 1000) return r;
+  }
+  return r;
+}
 
 function cleanName(name: string): string {
   return name
@@ -48,13 +65,11 @@ async function run() {
   const t0 = Date.now();
   const rows = new Map<string, Record<string, unknown>>();
   const now = new Date().toISOString();
+  const problems: string[] = [];
 
   // ---- stocks ----
-  const st = await httpGet("https://api.nasdaq.com/api/screener/stocks?tableonly=true&download=true", {
-    headers: NASDAQ_HEADERS,
-    timeoutMs: 30000,
-  });
-  if (st.status !== 200) throw new Error(`nasdaq stock screener HTTP ${st.status}`);
+  const st = await nasdaqGet(STOCKS_URL);
+  if (st.status !== 200) throw new Error(`nasdaq stock screener HTTP ${st.status} after 3 attempts; nothing written`);
   const stocks = (JSON.parse(st.text)?.data?.rows ?? []) as Record<string, string>[];
   for (const r of stocks) {
     const sym = String(r.symbol ?? "").trim().toUpperCase();
@@ -73,29 +88,34 @@ async function run() {
   }
 
   // ---- ETFs ----
-  const et = await httpGet("https://api.nasdaq.com/api/screener/etf?tableonly=true&download=true", {
-    headers: NASDAQ_HEADERS,
-    timeoutMs: 30000,
-  });
+  const et = await nasdaqGet(ETFS_URL);
   let etfCount = 0;
-  if (et.status === 200) {
-    const j = JSON.parse(et.text);
-    const etfs = (j?.data?.data?.rows ?? j?.data?.rows ?? []) as Record<string, string>[];
-    for (const r of etfs) {
-      const sym = String(r.symbol ?? "").trim().toUpperCase();
-      if (!SYMBOL_RE.test(sym) || rows.has(sym)) continue;
-      rows.set(sym, {
-        symbol: sym,
-        name: String(r.companyName ?? sym).trim() || sym,
-        type: "ETF",
-        sector: null,
-        industry: null,
-        country: null,
-        market_cap: null,
-        updated_at: now,
-      });
-      etfCount++;
-    }
+  let etfs: Record<string, string>[] = [];
+  try {
+    const j = et.status === 200 ? JSON.parse(et.text) : null;
+    etfs = (j?.data?.data?.rows ?? j?.data?.rows ?? []) as Record<string, string>[];
+  } catch {
+    etfs = []; // not JSON: reported below
+  }
+  for (const r of etfs) {
+    const sym = String(r.symbol ?? "").trim().toUpperCase();
+    if (!SYMBOL_RE.test(sym) || rows.has(sym)) continue;
+    rows.set(sym, {
+      symbol: sym,
+      name: String(r.companyName ?? sym).trim() || sym,
+      type: "ETF",
+      sector: null,
+      industry: null,
+      country: null,
+      market_cap: null,
+      updated_at: now,
+    });
+    etfCount++;
+  }
+  if (etfCount < 1000) {
+    problems.push(
+      et.status === 200 ? `nasdaq ETF screener returned only ${etfCount} ETFs` : `nasdaq ETF screener HTTP ${et.status} after 3 attempts`,
+    );
   }
 
   const all = Array.from(rows.values());
@@ -104,26 +124,28 @@ async function run() {
   const applied = (await withRetry("apply_directory_to_library", () => sb.rpc("apply_directory_to_library"))) as number | null;
 
   // ---- SEC CIKs for the library ----
-  const ua = await getConfig("sec_user_agent", "VIBA Terminal research dashboard");
-  const sec = await httpGet("https://www.sec.gov/files/company_tickers.json", { ua, timeoutMs: 30000 });
+  const sec = await secGet("https://www.sec.gov/files/company_tickers.json");
+  let secTickers = 0;
   let ciks = 0;
-  let secNote = "";
   if (sec.status === 200) {
     const j = JSON.parse(sec.text) as Record<string, { cik_str: number; ticker: string }>;
     const list = Object.values(j).map((r) => ({ symbol: String(r.ticker).toUpperCase().replace(/-/g, "."), cik: r.cik_str }));
     // first CIK wins for a ticker (the file lists primary share classes first)
     const seen = new Set<string>();
     const uniq = list.filter((r) => (seen.has(r.symbol) ? false : (seen.add(r.symbol), true)));
-    ciks = ((await withRetry("set_ciks", () => sb.rpc("set_ciks", { p_rows: uniq }))) as number | null) ?? 0;
+    secTickers = uniq.length;
+    if (uniq.length < 5000) problems.push(`SEC company_tickers.json looks truncated (${uniq.length} tickers); existing CIKs kept`);
+    else ciks = ((await withRetry("set_ciks", () => sb.rpc("set_ciks", { p_rows: uniq }))) as number | null) ?? 0;
   } else {
-    secNote = ` · SEC tickers HTTP ${sec.status} (check pipeline_config.sec_user_agent)`;
+    problems.push(`${secError("SEC company_tickers.json", sec)}; existing CIKs kept`);
   }
 
-  const note = `directory=${all.length} (stocks=${all.length - etfCount}, etfs=${etfCount}) library_updated=${applied ?? 0} ciks_set=${ciks}${secNote} ${(
-    (Date.now() - t0) / 1000
-  ).toFixed(1)}s`;
-  await logRun("sync-directory", sec.status === 200, note);
-  return { ok: true, note };
+  const ok = problems.length === 0;
+  const note = `directory=${all.length} (stocks=${all.length - etfCount}, etfs=${etfCount}) library_updated=${applied ?? 0} sec_tickers=${secTickers} ciks_changed=${ciks}${
+    ok ? "" : ` · ${problems.join(" · ")}`
+  } ${((Date.now() - t0) / 1000).toFixed(1)}s`;
+  await logRun("sync-directory", ok, note);
+  return { ok, note };
 }
 
 Deno.serve(async (req: Request) => {

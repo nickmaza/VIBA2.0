@@ -18,10 +18,10 @@ renders empty, and the header badge turns red with the failing query.
 |---|---|---|---|---|
 | Daily OHLCV for the whole library (2,100+ stocks and ETFs) | Yahoo Finance chart API, Nasdaq historical API as fallback | `sync-prices` | `raw_prices`, `symbol_stats` | Market ETFs and every name on screen every 15 min, 09:30–16:50 weekdays; the whole library after each close (from 16:30) |
 | Bars for any ticker you chart | same | `fetch-bars` (called by `/api/bars`) | `raw_prices` | On request; refreshes a symbol older than 15 min in the session, 12 h otherwise |
-| US listings directory, market caps, industries, SEC CIKs | Nasdaq screener, SEC `company_tickers.json` | `sync-directory` | `symbol_directory`, `symbol_meta` | Weekly (Sunday) |
+| US listings directory, market caps, industries, SEC CIKs | Nasdaq screener, SEC `company_tickers.json` | `sync-directory` | `symbol_directory`, `symbol_meta` | Weekly (Sunday); hourly retries after a failed run |
 | Options activity per underlying (call/put volume, premium, open interest, IV30) | CBOE delayed option chains | `sync-options` | `options_daily`, view `options_latest` | 100 most active chains hourly in the session; every optionable name after each close |
 | Insider open-market buys and sells | SEC EDGAR daily index + Form 4 filings | `sync-insiders` | `sec_form4_queue`, `insider_trades` | Index every 2 h; queued filings every 5 min |
-| Hedge-fund positioning (12 tracked funds) | SEC EDGAR 13F-HR filings | `sync-13f` | `fund_filings`, `fund_holdings`, `smart_money_reports('funds')` | Daily |
+| Hedge-fund positioning (12 tracked funds) | SEC EDGAR 13F-HR filings | `sync-13f` | `fund_filings`, `fund_holdings`, `smart_money_reports('funds')` | Daily; hourly retries after a failed run |
 | Congressional trades (STOCK Act) | Senate eFD and House Clerk periodic transaction reports; party from the congress-legislators dataset | `sync-congress` | `congress_filings`, `congress_trades`, `congress_members` | :07 and :37 every hour |
 
 | Computed | Edge function | Tables | Schedule |
@@ -33,7 +33,8 @@ renders empty, and the header badge turns red with the failing query.
 | Smart money report | `compute-smart-money` | `smart_money_reports('smart_money')` | Hourly in the session, and after the evening sweep |
 | Sector-rotation backtest | `compute-backtest` | `backtest_curves`, `backtest_stats` | Daily, 16:55 |
 
-The schedule lives in `supabase/migrations/20260927_schedules.sql`. `pg_cron`
+The schedule lives in `supabase/migrations/20260927_schedules.sql` (plus the
+retry jobs in `20261009_sec_retries.sql`). `pg_cron`
 runs in UTC, so each job gates itself to New York hours in SQL (daylight
 saving is handled; exchange holidays are not modeled, so on a holiday the jobs
 re-read the previous session). The after-close sweeps run until every library
@@ -60,6 +61,13 @@ rebuilds the setups, plays and smart money report once.
   is kept under its 10 requests/second fair-access limit and identifies itself
   with `pipeline_config.sec_user_agent`, and Yahoo symbols are fetched six at
   a time with the Nasdaq API as a fallback.
+- SEC rate-limits by client address, and edge functions share egress
+  addresses with other Supabase projects, so SEC sometimes answers HTTP 429
+  even to a handful of requests. `sync-directory` and `sync-13f` retry those
+  with backoff (`supabase/functions/_shared/sec.ts`); if SEC is still refusing,
+  the run is logged as failed, nothing stored is removed, and the
+  `directory-retry` / `funds-13f-retry` jobs re-run it hourly until it
+  succeeds (at most 12 tries in a row).
 
 ## 1. Run it locally
 
