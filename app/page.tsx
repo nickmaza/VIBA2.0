@@ -24,6 +24,8 @@ import PlaysBoard, { PlaysSummary, type PlayView, type WatchView } from "@/compo
 import ChartSearch from "@/components/ChartSearch";
 import SmartMoneyPlays, { SmartMoneySummary } from "@/components/SmartMoneyPlays";
 import SmartMoneyTab from "@/components/SmartMoneyTab";
+import PredictivePlays from "@/components/PredictivePlays";
+import { getPredictive } from "@/lib/predictive";
 
 export const revalidate = 0;
 
@@ -68,12 +70,13 @@ function Empty({ children }: { children: ReactNode }) {
  *   Overview        -- regime quotes, today's plays at a glance, sector ladder, alerts
  *   Plays           -- stock plays and smart money plays with full trade plans
  *   Smart Money     -- money flow, rotation, risk appetite, options, insiders, 13F, congress
+ *   Predictive Plays -- consumer review tone ahead of earnings (Jin 2023)
  *   Chart & Search  -- any ticker, interactive chart, auto levels and setups
  *   Regime / Sectors / Backtest / Pipeline -- the original analysis windows
  * A sticky menu bar sits on top and the ticker strip is pinned to the bottom.
  */
 export default async function Home() {
-  const [data, plays] = await Promise.all([getTerminalData(), getPlayViews()]);
+  const [data, plays, predictive] = await Promise.all([getTerminalData(), getPlayViews(), getPredictive()]);
   const errors = plays.error ? [...data.errors, `stock plays: ${plays.error}`] : data.errors;
   const priceBy = new Map(data.prices.map((p) => [p.symbol, p]));
   const reporting = INSTRUMENTS.filter((i) => priceBy.has(i.symbol)).length;
@@ -92,6 +95,7 @@ export default async function Home() {
   const lastDate = data.history[data.history.length - 1]?.d ?? "";
   const rotationState = data.rotation.length ? data.rotation[data.rotation.length - 1].state : "n/a";
   const playCount = plays.stocks.length;
+  const predictiveCount = predictive.plays.filter((p) => p.signal !== "neutral").length;
   const btMonths = data.curves.map((c) => c.month).sort();
   const btSpan = btMonths.length ? `${btMonths[0].slice(0, 4)}–${btMonths[btMonths.length - 1].slice(0, 4)}` : "no data";
   const top3 = data.stats.find((x) => x.strategy === "top3");
@@ -272,6 +276,8 @@ export default async function Home() {
       </div>
     ),
 
+    predictive: <PredictivePlays data={predictive} />,
+
     chart: (
       <div className="flex flex-col gap-[3px]">
         <ChartSearch defaultSymbol={plays.stocks[0]?.play.symbol ?? "SPY"} quick={plays.stocks.map((p) => p.play.symbol)} />
@@ -404,6 +410,7 @@ export default async function Home() {
           { id: "overview", label: "Overview" },
           { id: "plays", label: "Plays", badge: playCount },
           { id: "smart", label: "Smart Money" },
+          { id: "predictive", label: "Predictive Plays", badge: predictiveCount },
           { id: "chart", label: "Chart & Search" },
           { id: "regime", label: "Regime" },
           { id: "sectors", label: "Sectors" },

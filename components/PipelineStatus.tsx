@@ -21,12 +21,15 @@ const SOURCE_LABEL: Record<string, string> = {
   "sync-13f": "SYNC · SEC 13F → fund positioning",
   "sync-congress": "SYNC · STOCK Act filings → congress_trades",
   "sync-directory": "SYNC · US listings directory",
+  "sync-reviews": "SYNC · App Store + Steam reviews → review tone",
+  "sync-earnings": "SYNC · earnings calendar (Nasdaq)",
   "compute-regime-score": "COMPUTE · regime score",
   "compute-sector-rotation": "COMPUTE · sector rotation",
   "compute-trade-setups": "COMPUTE · trade setups",
   "compute-plays": "COMPUTE · stock plays",
   "compute-smart-money": "COMPUTE · smart money",
   "compute-backtest": "COMPUTE · backtest",
+  "compute-predictive": "COMPUTE · predictive plays",
 };
 
 /**

@@ -23,6 +23,8 @@ renders empty, and the header badge turns red with the failing query.
 | Insider open-market buys and sells | SEC EDGAR daily index + Form 4 filings | `sync-insiders` | `sec_form4_queue`, `insider_trades` | Index every 2 h; queued filings every 5 min |
 | Hedge-fund positioning (12 tracked funds) | SEC EDGAR 13F-HR filings | `sync-13f` | `fund_filings`, `fund_holdings`, `smart_money_reports('funds')` | Daily; hourly retries after a failed run |
 | Congressional trades (STOCK Act) | Senate eFD and House Clerk periodic transaction reports; party from the congress-legislators dataset | `sync-congress` | `congress_filings`, `congress_trades`, `congress_members` | :07 and :37 every hour |
+| Customer reviews of covered companies' apps and games, scored for tone | Apple App Store customer-reviews RSS (US store) and the Steam user-reviews API | `sync-reviews` | `review_products`, `review_tone_daily`, `review_samples`, `review_volume_daily` | App Store every 20 min; Steam every 3 h, with an 84-day history backfill every 10 min until done; rating counts daily |
+| Earnings dates | Nasdaq earnings calendar (next 60 days) | `sync-earnings` | `earnings_calendar` | Daily |
 
 | Computed | Edge function | Tables | Schedule |
 |---|---|---|---|
@@ -32,9 +34,11 @@ renders empty, and the header badge turns red with the failing query.
 | Stock plays and watchlist | `compute-plays` | `stock_plays` | Every 30 min in the session, and after the evening sweep |
 | Smart money report | `compute-smart-money` | `smart_money_reports('smart_money')` | Hourly in the session, and after the evening sweep |
 | Sector-rotation backtest | `compute-backtest` | `backtest_curves`, `backtest_stats` | Daily, 16:55 |
+| Predictive plays (review tone → next report) | `compute-predictive` | `predictive_plays`, `predictive_signal_history`, `predictive_outcomes` | Every 2 h |
 
 The schedule lives in `supabase/migrations/20260927_schedules.sql` (plus the
-retry jobs in `20261009_sec_retries.sql`). `pg_cron`
+retry jobs in `20261009_sec_retries.sql` and the review jobs in
+`20261011_predictive_plays.sql`). `pg_cron`
 runs in UTC, so each job gates itself to New York hours in SQL (daylight
 saving is handled; exchange holidays are not modeled, so on a holiday the jobs
 re-read the previous session). The after-close sweeps run until every library
@@ -127,6 +131,7 @@ strip pinned to the bottom. It collapses to one column on phones.
 | **Overview** | SPY / QQQ / IWM quote cards with their regime score, stock plays and smart money plays at a glance, regime legs, rotation strength, sector ladder, alerts |
 | **Plays** | Stock plays (compute-plays) and smart money plays (compute-smart-money), each with the written case and a trade plan computed from its own bars (entry, stop, TP 1, TP 2, reward:risk, checklist), the watchlist, and the pipeline's trade setups |
 | **Smart Money** | Money flow by sector and asset class, rotation map vs SPY, risk-appetite pairs, options positioning, accumulation leaders, insider buying, 13F fund moves, congressional trades |
+| **Predictive Plays** | Companies whose customers' review language leans unusually negative or positive ahead of their next report (after Jin 2023): score, signal, tone vs same-star reviews, competition, next report date, written case, recent review quotes, and the measured track record |
 | **Chart & Search** | Search any US stock or ETF (library + full listings directory); daily candlestick / bar chart with volume, 21/50/200-day averages, auto support and resistance, and the plan for every setup the engine finds |
 | **Regime** | SPY and SPY/QQQ/IWM regime charts with range buttons, bucket thresholds and drawdown shading; the five legs of the composite |
 | **Sectors** | Ranked sector momentum chart, rotation strength history, sector ladder |
@@ -203,6 +208,30 @@ earnings dates, news or overnight gaps; a stop is a level, not a guaranteed fill
   results. So far the regime filter has returned less than the momentum
   ranking on its own, which is why it is used as context rather than a switch.
 
+- **Predictive plays**: after Jin (2023), "More than words: Can tone of
+  consumer product reviews help predict firms' fundamentals?", *Journal of
+  Business Finance & Accounting* 50(9-10), 1910–1942. The paper finds that
+  Amazon review tone predicts next-quarter sales, earnings surprises,
+  announcement returns and risk; that negative tone matters more than
+  positive; that the effect is stronger in competitive industries; and that
+  it survives controls for rating, volume and dispersion. Amazon has no public
+  review access, so the same measurement runs on App Store and Steam reviews
+  of 118 apps and games mapped to 78 companies (`review_products`; `core`
+  when the product is the business, `channel` when it is one part of it).
+  Each review's tone is its share of positive and negative words in the Hu &
+  Liu opinion lexicon, with negation handled within a clause. Over the last
+  28 days, tone minus what same-star reviews show across the universe is
+  regressed on rating, log review volume and rating dispersion; the score is
+  0.65 × (lower negative tone) + 0.35 × (higher positive tone) in
+  cross-sectional standard deviations, blended 60/40 with the change against
+  the firm's prior 56 days once that baseline exists, and scaled by 0.85 / 0.7
+  in moderately concentrated / concentrated industries (Herfindahl index of
+  market caps per Nasdaq industry). Tailwind at +0.5 or above, headwind at
+  −0.5 or below, 30 reviews minimum. After each report, the stock's move from
+  the close before to the close after it, minus SPY, is stored against the
+  signal it carried in (`predictive_outcomes`), so the track record is
+  measured here rather than assumed.
+
 This is not financial advice. Treat it as an evidence-based framework, not a
 mechanical buy/sell signal.
 
@@ -214,7 +243,7 @@ app/                         Next.js App Router page, layout and API routes
   api/search                   search_symbols() RPC
   api/smart-money[/insiders|/funds]   reports and insider trades from Supabase
 components/                  Terminal UI (panels, charts, plays, smart money, pipeline)
-lib/                         Supabase client and readers (data, plays, market, smartmoney), setup engine (ta.ts)
+lib/                         Supabase client and readers (data, plays, market, smartmoney, predictive), setup engine (ta.ts)
 supabase/schema.sql          Base tables, RLS and the latest_prices view
 supabase/migrations/         The data pipeline: tables, RPCs, Vault secret, pg_cron schedule, read grants
 supabase/functions/          Edge functions (Deno):
@@ -224,6 +253,8 @@ supabase/functions/          Edge functions (Deno):
   sync-options                 CBOE chains -> options_daily
   sync-insiders, sync-13f      SEC EDGAR Form 4 and 13F
   sync-congress                Senate and House STOCK Act reports
-  compute-*                    regime, sectors, setups, plays, smart money, backtest
+  sync-reviews                 App Store + Steam reviews -> daily tone (lexicon.ts, tone.ts)
+  sync-earnings                Nasdaq earnings calendar
+  compute-*                    regime, sectors, setups, plays, smart money, backtest, predictive plays
   ingest-prices                retired (returns 410): prices come only from sync-prices
 ```

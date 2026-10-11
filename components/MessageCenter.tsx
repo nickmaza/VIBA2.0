@@ -29,6 +29,9 @@ const STAGES: { source: string; label: string }[] = [
   { source: "sync-insiders", label: "Insiders · SEC Form 4" },
   { source: "sync-13f", label: "Funds · SEC 13F" },
   { source: "sync-congress", label: "Congress · STOCK Act" },
+  { source: "sync-reviews", label: "Reviews · App Store + Steam" },
+  { source: "sync-earnings", label: "Earnings calendar · Nasdaq" },
+  { source: "compute-predictive", label: "Predictive plays" },
   { source: "compute-backtest", label: "Backtest" },
   { source: "sync-directory", label: "Symbol directory" },
 ];
