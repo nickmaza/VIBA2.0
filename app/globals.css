@@ -53,8 +53,28 @@ html, body {
   animation: flash-row 1.2s ease-out;
 }
 
+/* live price ticks (LivePrice), like Yahoo's streamer flash */
+@keyframes flash-up {
+  from { background: rgba(63, 191, 74, 0.45); }
+  to { background: transparent; }
+}
+@keyframes flash-down {
+  from { background: rgba(229, 69, 60, 0.45); }
+  to { background: transparent; }
+}
+.live-flash-up { animation: flash-up 0.9s ease-out; }
+.live-flash-down { animation: flash-down 0.9s ease-out; }
+
+/* "N new stories" bar in the news feed */
+@keyframes slide-in {
+  from { transform: translateY(-4px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.news-new { animation: slide-in 0.25s ease-out; }
+
 @media (prefers-reduced-motion: reduce) {
   .ticker-track { animation: none; }
   .live-dot { animation: none; }
   .flash-update { animation: none; }
+  .live-flash-up, .live-flash-down, .news-new { animation: none; }
 }

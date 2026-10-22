@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
+import { LiveQuotesProvider } from "@/lib/live";
 
 const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
@@ -24,7 +25,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${plexMono.variable} ${plexSans.variable}`}>
-      <body className="bg-term-bg font-sans text-term-text antialiased">{children}</body>
+      <body className="bg-term-bg font-sans text-term-text antialiased">
+        <LiveQuotesProvider>{children}</LiveQuotesProvider>
+      </body>
     </html>
   );
 }

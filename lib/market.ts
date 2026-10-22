@@ -121,3 +121,51 @@ export async function searchSymbols(q: string, limit = 10): Promise<SymbolHit[]>
     inLibrary: Boolean(r.in_library),
   }));
 }
+
+// ---------------------------------------------------------------- intraday
+export interface IntradayResult {
+  symbol: string;
+  interval: string;
+  range: string;
+  gmtoffset: number;
+  prevClose: number | null;
+  regular: { start: number; end: number } | null;
+  t: number[]; // unix seconds (UTC)
+  o: number[];
+  h: number[];
+  l: number[];
+  c: number[];
+  v: number[];
+  cached?: boolean;
+  stale?: boolean;
+  fetchedAt?: string;
+}
+
+export const INTRADAY_INTERVALS = ["1m", "2m", "5m", "15m", "30m", "60m"] as const;
+export const INTRADAY_RANGES = ["1d", "5d", "1mo", "3mo", "6mo", "1y"] as const;
+
+export type FetchIntradayResult = { ok: true; result: IntradayResult } | { ok: false; status: number; error: string };
+
+/**
+ * 1m-1h bars (with pre/post-market) through the fetch-intraday edge function,
+ * which reads Yahoo's chart endpoint and caches each answer for 30 s in the
+ * session so open tabs share one request.
+ */
+export async function fetchIntraday(symbol: string, interval: string, range?: string): Promise<FetchIntradayResult> {
+  const qs = new URLSearchParams({ symbol, interval, ...(range ? { range } : {}) });
+  let res: Response;
+  try {
+    res = await fetch(`${edgeFunctionUrl("fetch-intraday")}?${qs}`, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch (e) {
+    return { ok: false, status: 502, error: `Supabase fetch-intraday didn't respond: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok || !Array.isArray(j.t)) {
+    return { ok: false, status: res.ok ? 502 : res.status, error: String(j.error ?? `fetch-intraday failed (${res.status})`) };
+  }
+  return { ok: true, result: j as unknown as IntradayResult };
+}
