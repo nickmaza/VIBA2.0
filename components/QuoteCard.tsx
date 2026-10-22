@@ -1,5 +1,6 @@
 import type { RegimeSnapshotRow, RegimeHistoryRow, RawPriceRow } from "@/lib/types";
 import { INSTRUMENT_BY_SYMBOL } from "@/lib/instruments";
+import { LivePrice, LiveExtLine } from "@/lib/live";
 
 export function bucketColor(bucket: string) {
   if (bucket.includes("strong risk-on") || bucket === "risk-on") return "text-term-green";
@@ -56,8 +57,9 @@ const SPARK_COLOR: Record<string, string> = {
 };
 
 /**
- * Quote-window style card for one regime index: last close + day change up
- * top (from latest_prices), then the composite regime score / bucket and the
+ * Quote-window style card for one regime index: live price + day change up
+ * top (live_quotes over Realtime, falling back to latest_prices' close), the
+ * pre-market / after-hours line when there is one, then the composite regime score / bucket and the
  * quote-style detail grid (prev close, 52-wk hi/lo, data date, updated).
  */
 export default function QuoteCard({
@@ -89,15 +91,13 @@ export default function QuoteCard({
       </div>
 
       <div className="mt-0.5 flex items-end gap-2">
-        <span className="text-[22px] font-bold leading-none tabular-nums text-term-text">
-          {price ? fmtPx(price.close) : "—"}
+        <LivePrice symbol={snap.index_symbol} field="price" fallback={price?.close ?? null} className="text-[22px] font-bold leading-none text-term-text" />
+        <span className={`pb-0.5 text-[11px] tabular-nums ${up ? "text-term-green" : "text-term-red"}`}>
+          <LivePrice symbol={snap.index_symbol} field="change" fallback={price?.chg ?? null} arrow />{" "}
+          (<LivePrice symbol={snap.index_symbol} field="change_pct" fallback={price?.chg_pct ?? null} fallbackChange={price?.chg ?? null} />)
         </span>
-        {price && (
-          <span className={`pb-0.5 text-[11px] tabular-nums ${up ? "text-term-green" : "text-term-red"}`}>
-            {up ? "▲" : "▼"} {fmtSigned(price.chg)} ({fmtSigned(price.chg_pct, 2, "%")})
-          </span>
-        )}
       </div>
+      <LiveExtLine symbol={snap.index_symbol} className="mt-0.5 block text-[10.5px]" />
 
       <div className="mt-2 flex items-center justify-between border-y border-term-border/70 py-1">
         <span className="text-[10px] uppercase text-term-dim">Regime</span>

@@ -26,6 +26,7 @@ import SmartMoneyPlays, { SmartMoneySummary } from "@/components/SmartMoneyPlays
 import SmartMoneyTab from "@/components/SmartMoneyTab";
 import PredictivePlays from "@/components/PredictivePlays";
 import { getPredictive } from "@/lib/predictive";
+import NewsFeed from "@/components/NewsFeed";
 
 export const revalidate = 0;
 
@@ -106,6 +107,9 @@ export default async function Home() {
         ? ` In the backtest, using the regime score as a tactical cash filter returned less than the momentum ranking on its own (${dual.cagr.toFixed(1)}% vs ${top3.cagr.toFixed(1)}% a year).`
         : ` In the backtest, using the regime score as a tactical cash filter returned more than the momentum ranking on its own (${dual.cagr.toFixed(1)}% vs ${top3.cagr.toFixed(1)}% a year), which does not mean it will again.`
       : "";
+
+  const playSymbols = Array.from(new Set([...plays.stocks.map((p) => p.play.symbol), ...plays.watch.map((w) => w.item.symbol)]));
+  const newsFocus = ["^GSPC", "^IXIC", "^DJI", ...playSymbols];
 
   const quoteCards = snaps.length ? (
     snaps.map((s) => (
@@ -188,7 +192,7 @@ export default async function Home() {
       from historical prices. Past performance of the composite score, the momentum ranking and the setup rules does not
       predict future results.{filterNote} Trade plans are rules-based arithmetic on daily bars, not predictions, and nothing here accounts
       for earnings dates, news or gaps. Smart money signals describe where volume and positioning lean; they are not forecasts.
-      Market data: Yahoo Finance daily bars, CBOE delayed option chains, SEC EDGAR, Senate and House disclosures, all fetched
+      Market data: Yahoo Finance daily and intraday bars, live quotes (refreshed about every 30 seconds, not tick-by-tick) and news, CBOE delayed option chains, SEC EDGAR, Senate and House disclosures, all fetched
       and computed in Supabase.
     </footer>
   );
@@ -225,10 +229,23 @@ export default async function Home() {
           {disclaimer}
         </div>
         <div className="flex min-w-0 flex-col gap-[3px]">
+          <NewsFeed title="Latest news" symbols={newsFocus} pageSize={8} tabs={false} thumbs={false} maxHeight={420} chip="plays + market" />
           {legsPanel}
           {rotationPanel}
           {sectorLadder}
           {alertsPanel}
+        </div>
+      </div>
+    ),
+
+    news: (
+      <div className="grid grid-cols-1 gap-[3px] lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="flex min-w-0 flex-col gap-[3px]">
+          <NewsFeed title="News — all stories" pageSize={25} filterable chip="Yahoo Finance via sync-news" />
+        </div>
+        <div className="flex min-w-0 flex-col gap-[3px]">
+          <NewsFeed title="Market" symbols={["^GSPC", "^IXIC", "^DJI"]} pageSize={10} tabs={false} thumbs={false} maxHeight={520} chip="S&P · Nasdaq · Dow" />
+          <NewsFeed title="Your plays" symbols={playSymbols.length ? playSymbols : ["SPY"]} pageSize={10} tabs={false} thumbs={false} maxHeight={520} chip={`${playSymbols.length} tickers`} />
         </div>
       </div>
     ),
@@ -412,6 +429,7 @@ export default async function Home() {
           { id: "smart", label: "Smart Money" },
           { id: "predictive", label: "Predictive Plays", badge: predictiveCount },
           { id: "chart", label: "Chart & Search" },
+          { id: "news", label: "News" },
           { id: "regime", label: "Regime" },
           { id: "sectors", label: "Sectors" },
           { id: "backtest", label: "Backtest" },

@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { DATA_EVENT, type DataEventDetail } from "@/components/useSmartMoney";
+import { useLiveStatus } from "@/lib/live";
 
 type Status = "connecting" | "live" | "error";
 
+const LIVE_SOURCES = new Set(["sync-quotes", "sync-news"]);
 const MIN_REFRESH_MS = 60_000; // at most one server re-render a minute
 const SETTLE_MS = 4_000; // let a burst of runs finish before re-rendering
 
@@ -56,7 +58,9 @@ export default function RealtimeRefresher() {
           }).format(row.refreshed_at ? new Date(row.refreshed_at) : new Date())}`
         );
         window.dispatchEvent(new CustomEvent<DataEventDetail>(DATA_EVENT, { detail: { id: Number(row.id ?? Date.now()), source } }));
-        scheduleRefresh();
+        // live quotes and news reach the page over their own Realtime channels
+        // (lib/live.tsx, NewsFeed); their runs don't need a server re-render
+        if (!LIVE_SOURCES.has(source)) scheduleRefresh();
       })
       .subscribe((s) => {
         if (s === "SUBSCRIBED") setStatus("live");
@@ -74,6 +78,8 @@ export default function RealtimeRefresher() {
   const label = status === "live" ? "RT LIVE" : status === "connecting" ? "RT CONNECTING" : "RT ERROR";
 
   return (
+    <span className="flex items-center gap-3">
+      <QuotesBadge />
     <span className="flex items-center gap-1.5 text-[11px]" title="Supabase Realtime: new pipeline runs (refresh_log)">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       <span className={status === "live" ? "text-term-green" : "text-term-dim"}>{label}</span>
@@ -83,6 +89,21 @@ export default function RealtimeRefresher() {
           {last ? ` · last ${last} ET` : ""}
         </span>
       )}
+    </span>
+    </span>
+  );
+}
+
+/** Live-quote stream state (lib/live.tsx): streaming, polling fallback, or paused in a background tab. */
+function QuotesBadge() {
+  const st = useLiveStatus();
+  if (!st) return null;
+  const dot = st === "live" ? "bg-term-green live-dot" : st === "polling" ? "bg-term-amber" : st === "paused" ? "bg-term-dim" : "bg-term-yellow";
+  const label = st === "live" ? "QUOTES LIVE" : st === "polling" ? "QUOTES POLLING" : st === "paused" ? "QUOTES PAUSED" : "QUOTES …";
+  return (
+    <span className="flex items-center gap-1.5 text-[11px]" title="Live quotes: Supabase live_quotes over Realtime, refreshed ~every 30 s from 04:00 to 20:00 ET">
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+      <span className={st === "live" ? "text-term-green" : "text-term-dim"}>{label}</span>
     </span>
   );
 }
