@@ -724,7 +724,7 @@ export default function ChartSearch({ defaultSymbol, quick, playSymbols = [] }: 
 
   return (
     <div className="flex flex-col gap-[3px]">
-      <Panel title="Search" controls={<Chip>any US stock or ETF</Chip>} bodyClassName="p-2">
+      <Panel title="Search" tour="search" controls={<Chip>any US stock or ETF</Chip>} bodyClassName="p-2">
         <form
           className="relative"
           autoComplete="off"
@@ -846,7 +846,7 @@ export default function ChartSearch({ defaultSymbol, quick, playSymbols = [] }: 
                 {stateLabel}
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-2 border-b border-term-border px-2 py-1">
+            <div data-tour="ranges" className="flex flex-wrap items-center gap-2 border-b border-term-border px-2 py-1">
               <span className="flex gap-px" role="group" aria-label="Range">
                 {VIEWS.map((v) => (
                   <button key={v.key} type="button" className={btn(view === v.key)} onClick={() => pickView(v)}>
@@ -887,7 +887,7 @@ export default function ChartSearch({ defaultSymbol, quick, playSymbols = [] }: 
                 </label>
               </span>
             </div>
-            <div className="border-b border-term-border px-2 py-1">
+            <div data-tour="indicators" className="border-b border-term-border px-2 py-1">
               <IndicatorMenu active={indicators} onChange={changeIndicators} colorOf={colorOf} />
             </div>
             <div ref={legendRef} className="min-h-[16px] px-2 pt-1 font-mono text-[10.5px] leading-[15px] text-term-dim">
@@ -900,7 +900,7 @@ export default function ChartSearch({ defaultSymbol, quick, playSymbols = [] }: 
                 {intraErr ?? `Loading ${INTERVALS.find((x) => x.id === interval)?.label} bars for ${data.symbol}…`}
               </div>
             ) : (
-              <div className="relative w-full" style={{ height: totalH }}>
+              <div data-tour="chart" className="relative w-full" style={{ height: totalH }}>
                 <div ref={boxRef} className="absolute inset-0" />
                 {subs.map((a, k) => (
                   <div key={a.uid} className="pointer-events-none absolute left-0 right-[60px] border-t border-term-borderStrong" style={{ top: mainH + k * SUB_H }}>

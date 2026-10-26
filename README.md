@@ -80,7 +80,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. The app reads the VIBA Supabase project out of the
+Open http://localhost:3000 (landing page) or http://localhost:3000/terminal. The app reads the VIBA Supabase project out of the
 box (`lib/supabase.ts`). To point it at another project, copy `.env.example` to
 `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Both are public values: the anon key cannot
@@ -119,6 +119,18 @@ vercel
 
 No environment variables are required. The service role key never goes to
 Vercel: all writes happen inside Supabase.
+
+## Landing page and tour
+
+`/` is the landing page (`app/page.tsx`, `components/landing/`): the SPY regime score
+drawn as a "river" through the five regime bands, the five sections in the order
+you use them with today's real numbers, where the data comes from, and a way into
+the terminal. The terminal itself lives at `/terminal`; old links such as
+`/#chart/NVDA` are forwarded there.
+
+The guided tour (`components/Tour.tsx`) opens from `/terminal?tour=1` or the Tour
+button in the menu bar. Each step switches to its tab, scrolls to the panel marked
+`data-tour="..."`, dims the rest and explains it; arrow keys step, Esc closes.
 
 ## What the terminal shows
 

@@ -14,6 +14,7 @@ export default function Panel({
   className = "",
   bodyClassName = "",
   scrollX = false,
+  tour,
 }: {
   id?: string;
   title: string;
@@ -22,10 +23,13 @@ export default function Panel({
   className?: string;
   bodyClassName?: string;
   scrollX?: boolean;
+  /** anchor for the guided tour (components/Tour.tsx) */
+  tour?: string;
 }) {
   return (
     <section
       id={id}
+      data-tour={tour}
       className={`flex min-w-0 flex-col border border-term-border bg-term-panel ${className}`}
     >
       <header className="panel-title flex h-[22px] shrink-0 items-center gap-1.5 border-b border-term-border px-1.5">

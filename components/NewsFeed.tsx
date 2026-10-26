@@ -181,6 +181,7 @@ export default function NewsFeed({
   return (
     <Panel
       title={title}
+      tour="news"
       controls={
         <>
           {chip && <Chip>{chip}</Chip>}
