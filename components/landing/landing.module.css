@@ -47,16 +47,18 @@
   padding: 20px var(--gutter);
 }
 .wordmark {
-  font-family: var(--font-display), sans-serif;
-  font-weight: 750;
-  font-size: 20px;
-  letter-spacing: -0.01em;
-  text-decoration: none;
-  color: var(--green) !important;
+  display: flex;
+  align-items: center;
 }
-.wordmark span {
-  font-weight: 400;
-  color: var(--ink);
+.logo {
+  display: block;
+  height: clamp(24px, 2.4vw, 32px);
+  width: auto;
+}
+.footerLogo {
+  display: block;
+  height: 14px;
+  width: auto;
 }
 .nav nav {
   display: flex;
