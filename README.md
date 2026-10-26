@@ -132,11 +132,7 @@ strip pinned to the bottom. It collapses to one column on phones.
 | **Plays** | Stock plays (compute-plays) and smart money plays (compute-smart-money), each with the written case and a trade plan computed from its own bars (entry, stop, TP 1, TP 2, reward:risk, checklist), the watchlist, and the pipeline's trade setups |
 | **Smart Money** | Money flow by sector and asset class, rotation map vs SPY, risk-appetite pairs, options positioning, accumulation leaders, insider buying, 13F fund moves, congressional trades |
 | **Predictive Plays** | Companies whose customers' review language leans unusually negative or positive ahead of their next report (after Jin 2023): score, signal, tone vs same-star reviews, competition, next report date, written case, recent review quotes, and the measured track record |
-| **Chart & Search** | Search any US stock or ETF (library + full listings directory); daily candlestick / bar chart with volume, 21/50/200-day averages, auto support and resistance, and the plan for every setup the engine finds |
-| **Regime** | SPY and SPY/QQQ/IWM regime charts with range buttons, bucket thresholds and drawdown shading; the five legs of the composite |
-| **Sectors** | Ranked sector momentum chart, rotation strength history, sector ladder |
-| **Backtest** | Growth of $1 for four strategies with CAGR / volatility / Sharpe / max drawdown, recomputed daily from the stored history |
-| **Pipeline** | Every pipeline run from `refresh_log`, the tracked instruments table, and the message center: last run of each job, failures in the last 24 hours, and a countdown to the next scheduled runs |
+| **Chart & News** | Search any US stock or ETF; candlestick / bar chart from 1-minute (with pre/post-market) to daily, the newest candle following the live quote, 24 indicators from the indicator menu (15 moving-average types, Bollinger bands, Parabolic SAR, VWAP, RSI, MACD, Stochastics, ADX, Ichimoku, Supertrend and more), auto support and resistance, the plan for every setup the engine finds, and the terminal's news feed: the charted symbol, all stories, the market or your plays |
 
 The `RT` badge in the menu bar shows the Realtime subscription and the latest
 pipeline run; the `SUPABASE` badge next to it turns red and names the query if

@@ -196,13 +196,14 @@ interface Built {
 }
 
 /**
- * Search any US stock or ETF and chart it like Yahoo Finance's interactive
+ * Chart & News. Search any US stock or ETF and chart it like Yahoo Finance's interactive
  * chart: 1D/5D/1M intraday (1 min - 1 hour, with pre/post-market) or daily,
  * the newest candle moving with the live quote stream, every indicator from
  * the indicator menu (computed in the browser), plus the setup engine's
- * levels and trade plan (lib/ta.ts) and the symbol's live news.
+ * levels and trade plan (lib/ta.ts), and the terminal's only news feed:
+ * the charted symbol's stories, all stories, the market, or your plays.
  */
-export default function ChartSearch({ defaultSymbol, quick }: { defaultSymbol: string; quick: string[] }) {
+export default function ChartSearch({ defaultSymbol, quick, playSymbols = [] }: { defaultSymbol: string; quick: string[]; playSymbols?: string[] }) {
   // ---------- search ----------
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
@@ -971,7 +972,6 @@ export default function ChartSearch({ defaultSymbol, quick }: { defaultSymbol: s
                     ))}
                   </Panel>
                 )}
-                <NewsFeed key={data.symbol} title={`Recent news · ${data.symbol}`} symbols={[data.symbol]} pageSize={10} chip="news_items" />
               </div>
               <div className="flex min-w-0 flex-col gap-[3px]">
                 <Panel title="Technical read" bodyClassName="p-2">
@@ -1011,6 +1011,20 @@ export default function ChartSearch({ defaultSymbol, quick }: { defaultSymbol: s
               </div>
             </div>
           )}
+
+          <NewsFeed
+            key={data.symbol}
+            title="News"
+            pageSize={20}
+            filterable
+            chip="Yahoo Finance · live"
+            scopes={[
+              { id: "symbol", label: data.symbol, symbols: [data.symbol] },
+              { id: "all", label: "All stories" },
+              { id: "market", label: "Market", symbols: ["^GSPC", "^IXIC", "^DJI"] },
+              ...(playSymbols.length ? [{ id: "plays", label: `Your plays (${playSymbols.length})`, symbols: playSymbols }] : []),
+            ]}
+          />
         </>
       )}
 

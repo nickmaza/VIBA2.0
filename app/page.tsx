@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { getTerminalData } from "@/lib/data";
-import { INSTRUMENTS } from "@/lib/instruments";
 import { analyze, isAnalysis, type Analysis, type Bars } from "@/lib/ta";
 import { getBarsMany } from "@/lib/market";
 import { getPlays } from "@/lib/plays";
@@ -9,16 +8,10 @@ import Panel, { Chip } from "@/components/Panel";
 import Ticker from "@/components/Ticker";
 import QuoteCard from "@/components/QuoteCard";
 import GaugePanel from "@/components/GaugePanel";
-import RegimeChart from "@/components/RegimeChart";
 import SectorPanel from "@/components/SectorPanel";
-import SectorChart from "@/components/SectorChart";
-import BacktestPanel from "@/components/BacktestPanel";
-import TrackedInstruments from "@/components/TrackedInstruments";
 import TradeSetups from "@/components/TradeSetups";
 import RotationStrength from "@/components/RotationStrength";
-import PipelineStatus from "@/components/PipelineStatus";
 import AlertsPanel, { deriveAlerts } from "@/components/AlertsPanel";
-import MessageCenter from "@/components/MessageCenter";
 import Workspace from "@/components/Workspace";
 import PlaysBoard, { PlaysSummary, type PlayView, type WatchView } from "@/components/PlaysBoard";
 import ChartSearch from "@/components/ChartSearch";
@@ -26,7 +19,6 @@ import SmartMoneyPlays, { SmartMoneySummary } from "@/components/SmartMoneyPlays
 import SmartMoneyTab from "@/components/SmartMoneyTab";
 import PredictivePlays from "@/components/PredictivePlays";
 import { getPredictive } from "@/lib/predictive";
-import NewsFeed from "@/components/NewsFeed";
 
 export const revalidate = 0;
 
@@ -80,7 +72,6 @@ export default async function Home() {
   const [data, plays, predictive] = await Promise.all([getTerminalData(), getPlayViews(), getPredictive()]);
   const errors = plays.error ? [...data.errors, `stock plays: ${plays.error}`] : data.errors;
   const priceBy = new Map(data.prices.map((p) => [p.symbol, p]));
-  const reporting = INSTRUMENTS.filter((i) => priceBy.has(i.symbol)).length;
   const alerts = deriveAlerts({
     snapshot: data.snapshot,
     history: data.history,
@@ -92,13 +83,9 @@ export default async function Home() {
   const snaps = order
     .map((s) => data.snapshot.find((r) => r.index_symbol === s))
     .filter((r): r is NonNullable<typeof r> => Boolean(r));
-  const firstDate = data.history[0]?.d ?? "";
-  const lastDate = data.history[data.history.length - 1]?.d ?? "";
   const rotationState = data.rotation.length ? data.rotation[data.rotation.length - 1].state : "n/a";
   const playCount = plays.stocks.length;
   const predictiveCount = predictive.plays.filter((p) => p.signal !== "neutral").length;
-  const btMonths = data.curves.map((c) => c.month).sort();
-  const btSpan = btMonths.length ? `${btMonths[0].slice(0, 4)}–${btMonths[btMonths.length - 1].slice(0, 4)}` : "no data";
   const top3 = data.stats.find((x) => x.strategy === "top3");
   const dual = data.stats.find((x) => x.strategy === "dual");
   const filterNote =
@@ -109,7 +96,6 @@ export default async function Home() {
       : "";
 
   const playSymbols = Array.from(new Set([...plays.stocks.map((p) => p.play.symbol), ...plays.watch.map((w) => w.item.symbol)]));
-  const newsFocus = ["^GSPC", "^IXIC", "^DJI", ...playSymbols];
 
   const quoteCards = snaps.length ? (
     snaps.map((s) => (
@@ -120,29 +106,6 @@ export default async function Home() {
   ) : (
     <Panel title="SPY / QQQ / IWM" controls={<Chip>regime_snapshot</Chip>}>
       <Empty>Regime scores are not available: {errors.find((e) => e.startsWith("regime_snapshot")) ?? "compute-regime-score has not written a snapshot yet."}</Empty>
-    </Panel>
-  );
-
-  const spyChart = (
-    <Panel
-      title=".REGIME SPY"
-      controls={
-        <>
-          <Chip active>MAX</Chip>
-          <Chip>composite z</Chip>
-        </>
-      }
-    >
-      {data.history.length > 1 ? (
-        <RegimeChart history={data.history} series={["spy"]} defaultRange="max" showEvents height={230} />
-      ) : (
-        <Empty>No regime history in Supabase yet.</Empty>
-      )}
-      <div className="flex justify-between border-t border-term-border px-2 py-0.5 text-[10px] text-term-dim">
-        <span>{firstDate}</span>
-        <span>daily sessions · red bands = drawdown events</span>
-        <span>{lastDate}</span>
-      </div>
     </Panel>
   );
 
@@ -229,28 +192,11 @@ export default async function Home() {
           {disclaimer}
         </div>
         <div className="flex min-w-0 flex-col gap-[3px]">
-          <NewsFeed title="Latest news" symbols={newsFocus} pageSize={8} tabs={false} thumbs={false} maxHeight={420} chip="plays + market" />
           {legsPanel}
           {rotationPanel}
           {sectorLadder}
           {alertsPanel}
         </div>
-      </div>
-    ),
-
-    news: (
-      <div className="flex flex-col gap-[3px]">
-        <NewsFeed
-          title="News"
-          pageSize={25}
-          filterable
-          chip="Yahoo Finance via sync-news"
-          scopes={[
-            { id: "all", label: "All stories" },
-            { id: "market", label: "Market", symbols: ["^GSPC", "^IXIC", "^DJI"] },
-            ...(playSymbols.length ? [{ id: "plays", label: `Your plays (${playSymbols.length})`, symbols: playSymbols }] : []),
-          ]}
-        />
       </div>
     ),
 
@@ -301,126 +247,11 @@ export default async function Home() {
 
     chart: (
       <div className="flex flex-col gap-[3px]">
-        <ChartSearch defaultSymbol={plays.stocks[0]?.play.symbol ?? "SPY"} quick={plays.stocks.map((p) => p.play.symbol)} />
+        <ChartSearch defaultSymbol={plays.stocks[0]?.play.symbol ?? "SPY"} quick={plays.stocks.map((p) => p.play.symbol)} playSymbols={playSymbols} />
         {disclaimer}
       </div>
     ),
 
-    regime: (
-      <div className="grid grid-cols-1 gap-[3px] lg:grid-cols-[minmax(0,1fr)_350px]">
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          <div className="grid grid-cols-1 gap-[3px] xl:grid-cols-2">
-            {spyChart}
-            <Panel
-              title=".REGIME SPY / QQQ / IWM"
-              controls={
-                <>
-                  <Chip active>1Y</Chip>
-                  <Chip>3 indices</Chip>
-                </>
-              }
-            >
-              {data.history.length > 1 ? (
-                <RegimeChart history={data.history} series={["spy", "qqq", "iwm"]} defaultRange="1y" showEvents={false} height={230} />
-              ) : (
-                <Empty>No regime history in Supabase yet.</Empty>
-              )}
-              <div className="flex justify-between border-t border-term-border px-2 py-0.5 text-[10px] text-term-dim">
-                <span>shaded: ≥ +1.25 strong risk-on · ≤ −1.25 crash-warning</span>
-                <span>as of {data.asOf ?? "—"}</span>
-              </div>
-            </Panel>
-          </div>
-          <div className="grid grid-cols-1 gap-[3px] md:grid-cols-3">{quoteCards}</div>
-        </div>
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          {legsPanel}
-          {alertsPanel}
-        </div>
-      </div>
-    ),
-
-    sectors: (
-      <div className="grid grid-cols-1 gap-[3px] lg:grid-cols-[minmax(0,1fr)_350px]">
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          <Panel
-            title="Sector Momentum"
-            controls={
-              <>
-                <Chip active>RANKED</Chip>
-                <Chip>risk-adj.</Chip>
-              </>
-            }
-            bodyClassName="p-2"
-          >
-            {data.sectors.length ? <SectorChart sectors={data.sectors} /> : <Empty>No sector ranking in Supabase yet.</Empty>}
-            <div className="mt-1 flex justify-between text-[10px] text-term-dim">
-              <span>score = blended 3/6/12M momentum ÷ 126d vol</span>
-              <span>bold = top-3 holdings</span>
-            </div>
-          </Panel>
-          {rotationPanel}
-        </div>
-        <div className="flex min-w-0 flex-col gap-[3px]">{sectorLadder}</div>
-      </div>
-    ),
-
-    backtest: (
-      <div className="flex flex-col gap-[3px]">
-        <Panel
-          title="Backtest — Growth of $1"
-          controls={
-            <>
-              <Chip active>{btSpan}</Chip>
-              <Chip>monthly rebal · log</Chip>
-            </>
-          }
-        >
-          {data.curves.length ? (
-            <BacktestPanel curves={data.curves} stats={data.stats} />
-          ) : (
-            <Empty>No backtest in Supabase yet (compute-backtest writes it daily).</Empty>
-          )}
-        </Panel>
-        {disclaimer}
-      </div>
-    ),
-
-    pipeline: (
-      <div className="grid grid-cols-1 gap-[3px] lg:grid-cols-[270px_minmax(0,1fr)_350px]">
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          <Panel title="Pipeline" controls={<Chip>refresh_log</Chip>} bodyClassName="min-h-0">
-            <PipelineStatus log={data.refreshLog} />
-          </Panel>
-        </div>
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          <Panel
-            title="Tracked Instruments"
-            controls={
-              <>
-                <Chip active>All {INSTRUMENTS.length}</Chip>
-                <Chip>{reporting} reporting</Chip>
-                <Chip>latest_prices</Chip>
-              </>
-            }
-          >
-            <TrackedInstruments prices={data.prices} sectors={data.sectors} snapshot={data.snapshot} />
-          </Panel>
-        </div>
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          <Panel title="Message Center" controls={<Chip>pipeline health</Chip>}>
-            <MessageCenter
-              asOf={data.asOf}
-              errors={errors}
-              pipeline={data.pipeline}
-              symbolsReporting={reporting}
-              symbolsTracked={INSTRUMENTS.length}
-            />
-          </Panel>
-          {alertsPanel}
-        </div>
-      </div>
-    ),
   };
 
   return (
@@ -432,12 +263,7 @@ export default async function Home() {
           { id: "plays", label: "Plays", badge: playCount },
           { id: "smart", label: "Smart Money" },
           { id: "predictive", label: "Predictive Plays", badge: predictiveCount },
-          { id: "chart", label: "Chart & Search" },
-          { id: "news", label: "News" },
-          { id: "regime", label: "Regime" },
-          { id: "sectors", label: "Sectors" },
-          { id: "backtest", label: "Backtest" },
-          { id: "pipeline", label: "Pipeline" },
+          { id: "chart", label: "Chart & News" },
         ]}
         panels={panels}
       />

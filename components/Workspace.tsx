@@ -15,13 +15,17 @@ export interface WorkspaceTab {
  * in the URL hash (#plays, #chart, #chart/NVDA ...) so links and the browser
  * back button work, and is remembered between visits.
  */
+// tabs that were folded into others: old links and bookmarks still land somewhere useful
+const ALIASES: Record<string, string> = { news: "chart" };
+
 export default function Workspace({ tabs, panels }: { tabs: WorkspaceTab[]; panels: Record<string, ReactNode> }) {
   const ids = tabs.map((t) => t.id);
   const [active, setActive] = useState(ids[0]);
 
   useEffect(() => {
     const fromHash = () => {
-      const h = window.location.hash.replace(/^#/, "").split("/")[0];
+      const raw = window.location.hash.replace(/^#/, "").split("/")[0];
+      const h = ALIASES[raw] ?? raw;
       if (ids.includes(h)) {
         setActive(h);
         try {
