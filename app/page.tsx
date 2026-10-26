@@ -239,14 +239,18 @@ export default async function Home() {
     ),
 
     news: (
-      <div className="grid grid-cols-1 gap-[3px] lg:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          <NewsFeed title="News — all stories" pageSize={25} filterable chip="Yahoo Finance via sync-news" />
-        </div>
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          <NewsFeed title="Market" symbols={["^GSPC", "^IXIC", "^DJI"]} pageSize={10} tabs={false} thumbs={false} maxHeight={520} chip="S&P · Nasdaq · Dow" />
-          <NewsFeed title="Your plays" symbols={playSymbols.length ? playSymbols : ["SPY"]} pageSize={10} tabs={false} thumbs={false} maxHeight={520} chip={`${playSymbols.length} tickers`} />
-        </div>
+      <div className="flex flex-col gap-[3px]">
+        <NewsFeed
+          title="News"
+          pageSize={25}
+          filterable
+          chip="Yahoo Finance via sync-news"
+          scopes={[
+            { id: "all", label: "All stories" },
+            { id: "market", label: "Market", symbols: ["^GSPC", "^IXIC", "^DJI"] },
+            ...(playSymbols.length ? [{ id: "plays", label: `Your plays (${playSymbols.length})`, symbols: playSymbols }] : []),
+          ]}
+        />
       </div>
     ),
 
