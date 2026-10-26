@@ -1,273 +1,322 @@
-import type { ReactNode } from "react";
-import { getTerminalData } from "@/lib/data";
-import { analyze, isAnalysis, type Analysis, type Bars } from "@/lib/ta";
-import { getBarsMany } from "@/lib/market";
-import { getPlays } from "@/lib/plays";
-import MenuBar from "@/components/MenuBar";
-import Panel, { Chip } from "@/components/Panel";
-import Ticker from "@/components/Ticker";
-import QuoteCard from "@/components/QuoteCard";
-import GaugePanel from "@/components/GaugePanel";
-import SectorPanel from "@/components/SectorPanel";
-import TradeSetups from "@/components/TradeSetups";
-import RotationStrength from "@/components/RotationStrength";
-import AlertsPanel, { deriveAlerts } from "@/components/AlertsPanel";
-import Workspace from "@/components/Workspace";
-import PlaysBoard, { PlaysSummary, type PlayView, type WatchView } from "@/components/PlaysBoard";
-import ChartSearch from "@/components/ChartSearch";
-import SmartMoneyPlays, { SmartMoneySummary } from "@/components/SmartMoneyPlays";
-import SmartMoneyTab from "@/components/SmartMoneyTab";
-import PredictivePlays from "@/components/PredictivePlays";
-import { getPredictive } from "@/lib/predictive";
+import type { Metadata } from "next";
+import { Bricolage_Grotesque } from "next/font/google";
+import RegimeRiver from "@/components/landing/RegimeRiver";
+import LegacyHashRedirect from "@/components/landing/LegacyHashRedirect";
+import styles from "@/components/landing/landing.module.css";
+import { getLandingData } from "@/lib/landing";
 
-export const revalidate = 0;
+const display = Bricolage_Grotesque({
+  subsets: ["latin"],
+  axes: ["opsz", "wdth"],
+  variable: "--font-display",
+  display: "swap",
+});
 
-/**
- * The stock plays and watchlist computed in Supabase (compute-plays), each with
- * the setup engine's read of its latest bars (one bars_json_many round trip).
- */
-async function getPlayViews() {
-  const plays = await getPlays();
-  const symbols = [...plays.plays.map((p) => p.symbol), ...plays.watchlist.map((w) => w.symbol)];
-  let bars = new Map<string, Bars>();
-  let barsError: string | null = null;
-  if (symbols.length) {
-    try {
-      bars = await getBarsMany(symbols);
-    } catch (e) {
-      barsError = e instanceof Error ? e.message : String(e);
-    }
-  }
-  const analysisOf = (s: string): Analysis | null => {
-    const b = bars.get(s);
-    if (!b) return null;
-    const a = analyze(b);
-    return isAnalysis(a) ? a : null;
-  };
-  const stocks: PlayView[] = plays.plays.map((p) => ({
-    play: p,
-    analysis: analysisOf(p.symbol),
-    closes: bars.get(p.symbol)?.c.slice(-126) ?? [],
-  }));
-  const watch: WatchView[] = plays.watchlist.map((w) => ({ item: w, analysis: analysisOf(w.symbol) }));
-  return { stocks, watch, asOf: plays.asOf, generatedAt: plays.generatedAt, error: plays.error ?? barsError };
+export const revalidate = 300;
+
+export const metadata: Metadata = {
+  title: "VIBA Terminal: read the market before you trade it",
+  description:
+    "VIBA turns prices, options, insider filings and customer reviews into one reading of the market, then shows the stocks that fit it with an entry, a stop and two targets.",
+};
+
+const BUCKET_WORDS: Record<string, string> = {
+  "strong risk-on": "strong risk-on",
+  "risk-on": "risk-on",
+  neutral: "neutral",
+  "risk-off / caution": "caution",
+  "elevated risk / crash-warning": "crash warning",
+};
+
+function Tickers({ list }: { list: string[] }) {
+  if (!list.length) return null;
+  return (
+    <span className={styles.tickers}>
+      {list.map((s) => (
+        <a key={s} href={`/terminal#chart/${s}`}>
+          {s}
+        </a>
+      ))}
+    </span>
+  );
 }
 
-function Empty({ children }: { children: ReactNode }) {
-  return <div className="px-2 py-3 text-[11px] text-term-dim">{children}</div>;
+/** One stop along the river: the line bends in from the previous stop and out to the next. */
+function Stop({
+  n,
+  side,
+  title,
+  tab,
+  tabLabel,
+  children,
+  today,
+}: {
+  n: number;
+  side: "left" | "right";
+  title: string;
+  tab: string;
+  tabLabel: string;
+  children: React.ReactNode;
+  today?: React.ReactNode;
+}) {
+  return (
+    <li className={styles.stop}>
+      <svg className={styles.stopRiver} viewBox="0 0 64 100" preserveAspectRatio="none" aria-hidden>
+        <path
+          d={side === "left" ? "M32 0 C32 22, 56 30, 56 52 S32 82, 32 100" : "M32 0 C32 22, 8 30, 8 52 S32 82, 32 100"}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      <span className={styles.stopMarker} aria-hidden>
+        {n}
+      </span>
+      <div className={styles.stopBody}>
+        <h3>{title}</h3>
+        {children}
+        {today && <p className={styles.stopToday}>{today}</p>}
+        <a className={styles.stopLink} href={`/terminal#${tab}`}>
+          Open {tabLabel}
+        </a>
+      </div>
+    </li>
+  );
 }
 
-/**
- * VIBA Terminal. The page is a tabbed workspace; every tab is a grid of
- * dockable-looking windows in the same workstation style:
- *   Overview        -- regime quotes, today's plays at a glance, sector ladder, alerts
- *   Plays           -- stock plays and smart money plays with full trade plans
- *   Smart Money     -- money flow, rotation, risk appetite, options, insiders, 13F, congress
- *   Predictive Plays -- consumer review tone ahead of earnings (Jin 2023)
- *   Chart & Search  -- any ticker, interactive chart, auto levels and setups
- *   Regime / Sectors / Backtest / Pipeline -- the original analysis windows
- * A sticky menu bar sits on top and the ticker strip is pinned to the bottom.
- */
-export default async function Home() {
-  const [data, plays, predictive] = await Promise.all([getTerminalData(), getPlayViews(), getPredictive()]);
-  const errors = plays.error ? [...data.errors, `stock plays: ${plays.error}`] : data.errors;
-  const priceBy = new Map(data.prices.map((p) => [p.symbol, p]));
-  const alerts = deriveAlerts({
-    snapshot: data.snapshot,
-    history: data.history,
-    sectors: data.sectors,
-    log: data.refreshLog,
-    now: new Date(),
-  });
-  const order = ["SPY", "QQQ", "IWM"];
-  const snaps = order
-    .map((s) => data.snapshot.find((r) => r.index_symbol === s))
-    .filter((r): r is NonNullable<typeof r> => Boolean(r));
-  const rotationState = data.rotation.length ? data.rotation[data.rotation.length - 1].state : "n/a";
-  const playCount = plays.stocks.length;
-  const predictiveCount = predictive.plays.filter((p) => p.signal !== "neutral").length;
-  const top3 = data.stats.find((x) => x.strategy === "top3");
-  const dual = data.stats.find((x) => x.strategy === "dual");
-  const filterNote =
-    top3 && dual
-      ? dual.cagr < top3.cagr
-        ? ` In the backtest, using the regime score as a tactical cash filter returned less than the momentum ranking on its own (${dual.cagr.toFixed(1)}% vs ${top3.cagr.toFixed(1)}% a year).`
-        : ` In the backtest, using the regime score as a tactical cash filter returned more than the momentum ranking on its own (${dual.cagr.toFixed(1)}% vs ${top3.cagr.toFixed(1)}% a year), which does not mean it will again.`
-      : "";
-
-  const playSymbols = Array.from(new Set([...plays.stocks.map((p) => p.play.symbol), ...plays.watch.map((w) => w.item.symbol)]));
-
-  const quoteCards = snaps.length ? (
-    snaps.map((s) => (
-      <Panel key={s.index_symbol} title={s.index_symbol} controls={<Chip>quote · regime</Chip>}>
-        <QuoteCard snap={s} price={priceBy.get(s.index_symbol)} history={data.history} />
-      </Panel>
-    ))
-  ) : (
-    <Panel title="SPY / QQQ / IWM" controls={<Chip>regime_snapshot</Chip>}>
-      <Empty>Regime scores are not available: {errors.find((e) => e.startsWith("regime_snapshot")) ?? "compute-regime-score has not written a snapshot yet."}</Empty>
-    </Panel>
-  );
-
-  const sectorLadder = (
-    <Panel
-      title="Sector Rotation Ladder"
-      controls={
-        <>
-          <Chip active>11 SPDRs</Chip>
-          <Chip>as of {data.sectors[0]?.as_of ?? data.asOf}</Chip>
-        </>
-      }
-    >
-      {data.sectors.length ? <SectorPanel sectors={data.sectors} /> : <Empty>No sector ranking in Supabase yet.</Empty>}
-    </Panel>
-  );
-
-  const rotationPanel = (
-    <Panel
-      title="Rotation Strength"
-      controls={
-        <>
-          <Chip active>{rotationState}</Chip>
-          <Chip>0-100</Chip>
-        </>
-      }
-    >
-      <RotationStrength rows={data.rotation} />
-    </Panel>
-  );
-
-  const legsPanel = (
-    <Panel title="Regime Composite — Legs" controls={<Chip>regime_snapshot</Chip>}>
-      <GaugePanel snapshot={data.snapshot} />
-    </Panel>
-  );
-
-  const alertsPanel = (
-    <Panel title="Alerts" controls={<Chip>derived live</Chip>}>
-      <AlertsPanel alerts={alerts} />
-    </Panel>
-  );
-
-  const disclaimer = (
-    <footer className="px-1 pb-1 text-[10px] leading-relaxed text-term-dim">
-      <span className="font-semibold text-term-text">NOT FINANCIAL ADVICE.</span> Backtested statistical framework built
-      from historical prices. Past performance of the composite score, the momentum ranking and the setup rules does not
-      predict future results.{filterNote} Trade plans are rules-based arithmetic on daily bars, not predictions, and nothing here accounts
-      for earnings dates, news or gaps. Smart money signals describe where volume and positioning lean; they are not forecasts.
-      Market data: Yahoo Finance daily and intraday bars, live quotes (refreshed about every 30 seconds, not tick-by-tick) and news, CBOE delayed option chains, SEC EDGAR, Senate and House disclosures, all fetched
-      and computed in Supabase.
-    </footer>
-  );
-
-  const panels = {
-    overview: (
-      <div className="grid grid-cols-1 gap-[3px] lg:grid-cols-[minmax(0,1fr)_350px]">
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          <div className="grid grid-cols-1 gap-[3px] md:grid-cols-3">{quoteCards}</div>
-          <Panel
-            title="Stock Plays — at a glance"
-            controls={
-              <>
-                <Chip active>{playCount} plays</Chip>
-                <Chip>case as of {plays.asOf ?? "—"}</Chip>
-                <a href="#plays" className="text-term-cyan hover:underline">
-                  full plays →
-                </a>
-              </>
-            }
-          >
-            <PlaysSummary rows={[{ label: "Stock plays", items: plays.stocks }]} />
-          </Panel>
-          <Panel
-            title="Smart Money Plays — at a glance"
-            controls={
-              <a href="#smart" className="text-term-cyan hover:underline">
-                smart money tab →
-              </a>
-            }
-          >
-            <SmartMoneySummary />
-          </Panel>
-          {disclaimer}
-        </div>
-        <div className="flex min-w-0 flex-col gap-[3px]">
-          {legsPanel}
-          {rotationPanel}
-          {sectorLadder}
-          {alertsPanel}
-        </div>
-      </div>
-    ),
-
-    plays: (
-      <div className="flex flex-col gap-[3px]">
-        <Panel
-          title="VIBA Plays — Stocks & Smart Money"
-          controls={
-            <>
-              <Chip active>{plays.stocks.length} stock plays</Chip>
-              <Chip active>smart money plays</Chip>
-              <Chip>no index products</Chip>
-            </>
-          }
-        >
-          <PlaysBoard
-            stocks={plays.stocks}
-            watchlist={plays.watch}
-            asOf={plays.asOf}
-            generatedAt={plays.generatedAt}
-            error={plays.error}
-            secondary={<SmartMoneyPlays />}
-          />
-        </Panel>
-        <Panel
-          title="Pipeline Candidates — Entry / Stop / Targets"
-          controls={
-            <>
-              <Chip active>{data.setups.length} candidates</Chip>
-              <Chip>long only</Chip>
-              <Chip>trade_setups</Chip>
-            </>
-          }
-        >
-          <TradeSetups setups={data.setups} rotation={data.rotation} />
-        </Panel>
-        {disclaimer}
-      </div>
-    ),
-
-    smart: (
-      <div className="flex flex-col gap-[3px]">
-        <SmartMoneyTab />
-      </div>
-    ),
-
-    predictive: <PredictivePlays data={predictive} />,
-
-    chart: (
-      <div className="flex flex-col gap-[3px]">
-        <ChartSearch defaultSymbol={plays.stocks[0]?.play.symbol ?? "SPY"} quick={plays.stocks.map((p) => p.play.symbol)} playSymbols={playSymbols} />
-        {disclaimer}
-      </div>
-    ),
-
-  };
+export default async function Landing() {
+  const d = await getLandingData();
+  const mood = d.spy ? BUCKET_WORDS[d.spy.bucket] ?? d.spy.bucket : null;
+  const score = d.spy ? (d.spy.score >= 0 ? "+" : "") + d.spy.score.toFixed(2) : null;
 
   return (
-    <main className="min-h-screen bg-term-bg pb-8">
-      <MenuBar errors={errors} asOf={data.asOf} />
-      <Workspace
-        tabs={[
-          { id: "overview", label: "Overview" },
-          { id: "plays", label: "Plays", badge: playCount },
-          { id: "smart", label: "Smart Money" },
-          { id: "predictive", label: "Predictive Plays", badge: predictiveCount },
-          { id: "chart", label: "Chart & News" },
-        ]}
-        panels={panels}
-      />
-      <Ticker snapshot={data.snapshot} prices={data.prices} />
-    </main>
+    <div className={`${display.variable} ${styles.page}`}>
+      <LegacyHashRedirect />
+
+      <header className={styles.nav}>
+        <a href="/" className={styles.wordmark}>
+          VIBA <span>Terminal</span>
+        </a>
+        <nav aria-label="Landing page">
+          <a href="#how">How it works</a>
+          <a href="#data">The data</a>
+          <a href="/terminal?tour=1">Tour</a>
+          <a href="/terminal" className={styles.navCta}>
+            Open the terminal
+          </a>
+        </nav>
+      </header>
+
+      <main>
+        <section className={styles.hero}>
+          <div className={styles.heroText}>
+            <h1>Read the market&rsquo;s mood before you place a trade.</h1>
+            <p className={styles.lede}>
+              VIBA blends trend, breadth, volatility, credit and interest rates into one regime score, then finds the stocks that fit
+              it and writes each one a trade plan: an entry, a stop and two targets.
+            </p>
+            <div className={styles.ctas}>
+              <a href="/terminal" className={styles.primary}>
+                Open the terminal
+              </a>
+              <a href="/terminal?tour=1" className={styles.secondary}>
+                Take the two-minute tour
+              </a>
+            </div>
+          </div>
+          <RegimeRiver points={d.regime} today={d.spy && mood ? { score: d.spy.score, label: mood } : null} />
+          <p id="river-caption" className={styles.riverCaption}>
+            This is the S&amp;P 500 regime score over the last two years.
+            {score && mood ? ` Today it reads ${score}, which VIBA calls ${mood}.` : ""} Above zero, conditions have favored owning
+            stocks; below it, they have favored caution.
+          </p>
+        </section>
+
+        <section id="how" className={styles.how} aria-labelledby="how-title">
+          <h2 id="how-title">From the market&rsquo;s mood to one trade, in five steps</h2>
+          <p className={styles.sectionLede}>Each step is a tab in the terminal, in the order most people use them.</p>
+          <ol className={styles.stops}>
+            <Stop
+              n={1}
+              side="left"
+              title="Start with the regime"
+              tab="overview"
+              tabLabel="Overview"
+              today={
+                score && mood ? (
+                  <>
+                    Today SPY reads <b>{score}</b> ({mood})
+                    {d.sectors.length ? (
+                      <>
+                        , and the strongest sectors are <b>{d.sectors.map((s) => s.name).join(", ")}</b>.
+                      </>
+                    ) : (
+                      "."
+                    )}
+                  </>
+                ) : null
+              }
+            >
+              <p>
+                The Overview shows SPY, QQQ and IWM with live prices and their regime scores, the five ingredients behind each score,
+                and which of the 11 sectors are leading. It tells you whether the tide is with you before you look at a single stock.
+              </p>
+            </Stop>
+            <Stop
+              n={2}
+              side="right"
+              title="Get plays that fit it"
+              tab="plays"
+              tabLabel="Plays"
+              today={
+                d.plays.length ? (
+                  <>
+                    Today&rsquo;s plays: <Tickers list={d.plays.map((p) => p.symbol)} />
+                  </>
+                ) : null
+              }
+            >
+              <p>
+                Inside the three strongest sectors, VIBA picks stocks trading above their 50- and 200-day averages with real volume,
+                ranks them by momentum per unit of risk, and writes the case and the plan for each from the stock&rsquo;s own chart.
+              </p>
+            </Stop>
+            <Stop
+              n={3}
+              side="left"
+              title="See where big money leans"
+              tab="smart"
+              tabLabel="Smart Money"
+              today={
+                d.smartMoney.length ? (
+                  <>
+                    Smart money plays right now: <Tickers list={d.smartMoney.map((p) => p.symbol)} />
+                  </>
+                ) : null
+              }
+            >
+              <p>
+                Money flow by sector, options positioning, insider buying from SEC filings, what 12 large hedge funds changed last
+                quarter, and the trades members of Congress disclosed. It&rsquo;s supporting evidence, not a signal on its own.
+              </p>
+            </Stop>
+            <Stop
+              n={4}
+              side="right"
+              title="Hear customers before earnings"
+              tab="predictive"
+              tabLabel="Predictive Plays"
+              today={
+                d.predictive ? (
+                  <>
+                    Tracking <b>{d.predictive.tracked}</b> companies: <b>{d.predictive.tailwinds}</b> with a tailwind and{" "}
+                    <b>{d.predictive.headwinds}</b> with a headwind into their next report.
+                  </>
+                ) : null
+              }
+            >
+              <p>
+                Research has found that the tone of product reviews predicts a company&rsquo;s next quarter. VIBA scores App Store and Steam
+                reviews as they are posted and flags companies whose customers sound unusually upbeat or unhappy, then keeps score
+                of how those calls turned out.
+              </p>
+            </Stop>
+            <Stop
+              n={5}
+              side="left"
+              title="Check the chart and the headlines"
+              tab="chart"
+              tabLabel="Chart & News"
+              today={
+                d.newsToday !== null ? (
+                  <>
+                    <b>{d.newsToday}</b> stories in the last 24 hours
+                    {d.quotesLive ? (
+                      <>
+                        , and <b>{d.quotesLive}</b> symbols quoted live.
+                      </>
+                    ) : (
+                      "."
+                    )}
+                  </>
+                ) : null
+              }
+            >
+              <p>
+                Search any US stock or ETF and chart it from 1-minute bars with pre- and after-market to daily, add any of 24
+                indicators, see the support, resistance and trade plan drawn on the chart, and read its news as it breaks. Prices
+                update about every 30 seconds from 4am to 8pm Eastern.
+              </p>
+            </Stop>
+          </ol>
+        </section>
+
+        <section id="data" className={styles.data} aria-labelledby="data-title">
+          <h2 id="data-title">Where the numbers come from</h2>
+          <p className={styles.sectionLede}>
+            Everything on screen is computed from public data inside VIBA&rsquo;s own database. Nothing is made up or simulated; if a
+            source is down, the panel says so.
+          </p>
+          <dl className={styles.sources}>
+            <div>
+              <dt>Prices</dt>
+              <dd>Yahoo Finance. Live about every 30 seconds from 4am to 8pm Eastern, plus years of daily history.</dd>
+            </div>
+            <div>
+              <dt>Options</dt>
+              <dd>CBOE delayed option chains: call and put volume, premium and implied volatility, hourly in the session.</dd>
+            </div>
+            <div>
+              <dt>Insiders and funds</dt>
+              <dd>SEC EDGAR Form 4 filings every few minutes, and 13F holdings for 12 large funds each quarter.</dd>
+            </div>
+            <div>
+              <dt>Congress</dt>
+              <dd>Senate and House periodic transaction reports, checked twice an hour.</dd>
+            </div>
+            <div>
+              <dt>Customer reviews</dt>
+              <dd>Apple App Store and Steam reviews for 118 apps and games tied to 78 companies.</dd>
+            </div>
+            <div>
+              <dt>News</dt>
+              <dd>Yahoo Finance stories for the market and every symbol on screen, every 2 minutes in market hours.</dd>
+            </div>
+          </dl>
+          <p className={styles.disclaimer}>
+            VIBA is an evidence-based framework, not financial advice. Scores describe conditions; trade plans are arithmetic on past
+            prices, and a stop is a level, not a guaranteed fill.
+          </p>
+        </section>
+
+        <section id="tour" className={styles.tour} aria-labelledby="tour-title">
+          <div className={styles.tourInner}>
+            <h2 id="tour-title">New here? Let the terminal show you around.</h2>
+            <p>
+              The tour opens the terminal and walks through it one panel at a time: what each number means, where to click, and what
+              to look at first. It takes about two minutes. You can leave at any step and restart it from the Tour button in the
+              menu bar.
+            </p>
+            <ol className={styles.tourSteps}>
+              <li>Reading the regime score and the sector ladder</li>
+              <li>Using a play&rsquo;s entry, stop and targets</li>
+              <li>Smart money and predictive signals</li>
+              <li>Charting any ticker, adding indicators and reading its news</li>
+            </ol>
+            <div className={styles.ctas}>
+              <a href="/terminal?tour=1" className={styles.primaryDark}>
+                Start the tour
+              </a>
+              <a href="/terminal" className={styles.secondaryDark}>
+                Skip to the terminal
+              </a>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className={styles.footer}>
+        <span>VIBA Terminal</span>
+        <span>Market data from Yahoo Finance, CBOE, SEC EDGAR, Senate and House disclosures, Apple App Store and Steam.</span>
+      </footer>
+    </div>
   );
 }

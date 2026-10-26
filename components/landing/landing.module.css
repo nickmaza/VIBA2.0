@@ -1,0 +1,506 @@
+/*
+ * VIBA landing page.
+ * Fog-light page that flows down a single "river" (the SPY regime line) and
+ * darkens into the terminal's own panel color where you enter the app.
+ *   fog    #E8EDEF  page
+ *   ink    #14232C  text, primary button
+ *   slate  #5B6B74  secondary text
+ *   green  #4E9A2E  river / risk-on   (#6CB33F on dark, the app's brand)
+ *   amber  #C9921A  caution           rust #C24A3A  risk-off
+ *   panel  #141414  the terminal
+ */
+
+.page {
+  --fog: #e8edef;
+  --fog-2: #dfe6e9;
+  --ink: #14232c;
+  --slate: #5b6b74;
+  --green: #4e9a2e;
+  --brand: #6cb33f;
+  --amber: #c9921a;
+  --rust: #c24a3a;
+  --panel: #141414;
+  --gutter: clamp(16px, 5vw, 64px);
+  background: var(--fog);
+  color: var(--ink);
+  font-family: var(--font-plex-sans), "Segoe UI", system-ui, sans-serif;
+  font-size: 16.5px;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.page :focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.page a {
+  color: inherit;
+}
+
+/* ------------------------------------------------------------------ nav */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px var(--gutter);
+}
+.wordmark {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 750;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  color: var(--green) !important;
+}
+.wordmark span {
+  font-weight: 400;
+  color: var(--ink);
+}
+.nav nav {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 2.4vw, 28px);
+  font-size: 15px;
+}
+.nav nav a {
+  text-decoration: none;
+  color: var(--slate);
+}
+.nav nav a:hover {
+  color: var(--ink);
+}
+.nav nav .navCta {
+  color: var(--fog);
+  background: var(--ink);
+  padding: 7px 14px;
+  border-radius: 10px;
+}
+.nav nav .navCta:hover {
+  color: #fff;
+  background: #0b171e;
+}
+@media (max-width: 640px) {
+  .nav nav a:not(.navCta) {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ hero */
+.hero {
+  padding: clamp(20px, 4.5vw, 56px) var(--gutter) 0;
+}
+.heroText {
+  max-width: 920px;
+}
+.hero h1 {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 620;
+  font-variation-settings: "wdth" 90, "opsz" 96;
+  font-size: clamp(40px, 6vw, 86px);
+  line-height: 1;
+  letter-spacing: -0.018em;
+  margin: 0 0 24px;
+  text-wrap: balance;
+}
+.lede {
+  font-size: clamp(17px, 1.6vw, 20px);
+  line-height: 1.55;
+  color: #2b3b44;
+  max-width: 60ch;
+  margin: 0 0 28px;
+}
+.ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.primary,
+.secondary,
+.primaryDark,
+.secondaryDark {
+  display: inline-flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 20px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 16px;
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.primary {
+  background: var(--ink);
+  color: var(--fog) !important;
+}
+.primary:hover {
+  background: #0b171e;
+}
+.secondary {
+  border: 1.5px solid rgba(20, 35, 44, 0.35);
+  color: var(--ink);
+}
+.secondary:hover {
+  border-color: var(--ink);
+}
+
+/* ------------------------------------------------------------------ river */
+.river {
+  position: relative;
+  margin: clamp(28px, 4vw, 44px) calc(var(--gutter) * -1) 0;
+  height: clamp(240px, 36vw, 470px);
+}
+.riverSvg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.riverLine {
+  /* drawn left to right once on load (a clip reveal works with the non-scaling stroke) */
+  clip-path: inset(-10% 100% -10% 0);
+  animation: draw 2.6s cubic-bezier(0.3, 0.6, 0.2, 1) 0.2s forwards;
+}
+.riverArea {
+  opacity: 0;
+  animation: fade 1.2s ease-out 2s forwards;
+}
+@keyframes draw {
+  to {
+    clip-path: inset(-10% 0 -10% 0);
+  }
+}
+@keyframes fade {
+  to {
+    opacity: 1;
+  }
+}
+.bandLabels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.bandLabels li {
+  position: absolute;
+  right: var(--gutter);
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--slate);
+}
+.todayMark {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  animation: fade 0.6s ease-out 2.6s forwards;
+}
+.todayDot {
+  position: absolute;
+  left: -7px;
+  top: -7px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 0 0 5px rgba(232, 237, 239, 0.9), 0 0 0 6.5px rgba(20, 35, 44, 0.35);
+}
+.todayLabel {
+  position: absolute;
+  right: 18px;
+  bottom: 12px;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 13px;
+  color: var(--slate);
+  line-height: 1.25;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(232, 237, 239, 0.86);
+}
+.todayLabel b {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 22px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.riverDates {
+  position: absolute;
+  left: var(--gutter);
+  right: calc(var(--gutter) + 120px);
+  bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: var(--slate);
+}
+.riverCaption {
+  max-width: 64ch;
+  margin: 18px 0 0;
+  color: var(--slate);
+  font-size: 15px;
+}
+@media (max-width: 640px) {
+  /* the line's own color shows the band on small screens */
+  .bandLabels {
+    display: none;
+  }
+  .todayLabel b {
+    font-size: 18px;
+  }
+}
+
+/* ------------------------------------------------------------------ how it works */
+.how,
+.data {
+  padding: clamp(72px, 10vw, 128px) var(--gutter) 0;
+  max-width: 1120px;
+}
+.how h2,
+.data h2,
+.tour h2 {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 620;
+  font-variation-settings: "wdth" 84, "opsz" 72;
+  font-size: clamp(30px, 4.2vw, 52px);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
+  max-width: 22ch;
+  text-wrap: balance;
+}
+.sectionLede {
+  color: var(--slate);
+  max-width: 60ch;
+  margin: 0 0 40px;
+}
+
+.stops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.stop {
+  position: relative;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  column-gap: clamp(12px, 3vw, 32px);
+  padding-bottom: clamp(40px, 6vw, 72px);
+}
+.stopRiver {
+  position: absolute;
+  left: 0;
+  top: 18px;
+  width: 64px;
+  height: 100%;
+  overflow: visible;
+}
+.stopRiver path {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2.5px;
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+.stop:last-child .stopRiver path {
+  stroke-dasharray: 2 7;
+}
+.stopMarker {
+  grid-column: 1;
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--fog);
+  border: 2.5px solid var(--green);
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--green);
+}
+.stopBody {
+  grid-column: 2;
+  max-width: 64ch;
+}
+.stopBody h3 {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 640;
+  font-variation-settings: "wdth" 90, "opsz" 40;
+  font-size: clamp(22px, 2.4vw, 30px);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  margin: 2px 0 10px;
+}
+.stopBody p {
+  margin: 0 0 14px;
+}
+.stopToday {
+  background: rgba(78, 154, 46, 0.09);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: var(--ink);
+  font-size: 15.5px;
+}
+.stopToday b {
+  font-weight: 650;
+}
+.tickers {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  vertical-align: middle;
+}
+.tickers a {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 1px 8px;
+  border-radius: 7px;
+  background: var(--fog);
+  border: 1px solid rgba(20, 35, 44, 0.18);
+}
+.tickers a:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+.stopLink {
+  display: inline-block;
+  font-weight: 600;
+  color: var(--green) !important;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1.5px;
+}
+
+/* ------------------------------------------------------------------ data */
+.data {
+  padding-bottom: clamp(72px, 10vw, 120px);
+}
+.sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 28px 48px;
+  margin: 0 0 36px;
+}
+.sources div {
+  border-top: 1.5px solid rgba(20, 35, 44, 0.16);
+  padding-top: 12px;
+}
+.sources dt {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 640;
+  font-size: 19px;
+  margin-bottom: 4px;
+}
+.sources dd {
+  margin: 0;
+  color: var(--slate);
+  font-size: 15.5px;
+}
+.disclaimer {
+  max-width: 64ch;
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--slate);
+}
+
+/* ------------------------------------------------------------------ tour: the page flows into the terminal */
+.tour {
+  position: relative;
+  background: var(--panel);
+  color: #e6e6e6;
+  padding: clamp(96px, 12vw, 150px) var(--gutter) clamp(72px, 9vw, 110px);
+}
+.tour::before {
+  /* a wave edge where the fog meets the terminal */
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: clamp(48px, 7vw, 96px);
+  background: var(--fog);
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 100' preserveAspectRatio='none'><path d='M0 0 H1200 V40 C 950 110, 700 0, 450 55 S 120 80, 0 30 Z' fill='black'/></svg>") center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 100' preserveAspectRatio='none'><path d='M0 0 H1200 V40 C 950 110, 700 0, 450 55 S 120 80, 0 30 Z' fill='black'/></svg>") center / 100% 100% no-repeat;
+}
+.tourInner {
+  max-width: 760px;
+}
+.tour h2 {
+  color: #f2f2f2;
+  max-width: 24ch;
+}
+.tour p {
+  color: #b8b8b8;
+  max-width: 60ch;
+  margin: 0 0 24px;
+}
+.tourSteps {
+  margin: 0 0 32px;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: 10px;
+}
+.tourSteps li {
+  counter-increment: step;
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  color: #e6e6e6;
+}
+.tourSteps li::before {
+  content: counter(step);
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  color: var(--brand);
+  min-width: 1ch;
+}
+.primaryDark {
+  background: var(--brand);
+  color: #0f1a0a !important;
+}
+.primaryDark:hover {
+  background: #7cc54d;
+}
+.secondaryDark {
+  border: 1.5px solid #5a5a5a;
+  color: #e6e6e6 !important;
+}
+.secondaryDark:hover {
+  border-color: #9c9c9c;
+}
+
+.footer {
+  background: var(--panel);
+  border-top: 1px solid #2b2b2b;
+  color: #8a8a8a;
+  font-size: 13px;
+  padding: 18px var(--gutter) 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  justify-content: space-between;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .riverLine {
+    animation: none;
+    clip-path: none;
+  }
+  .riverArea,
+  .todayMark {
+    animation: none;
+    opacity: 1;
+  }
+}
