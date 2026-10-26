@@ -6,7 +6,7 @@ import Panel, { Chip } from "@/components/Panel";
 import { LivePrice } from "@/lib/live";
 
 // A live news feed modeled on Yahoo Finance's quote-page "Recent News":
-// tabs (All / News / Press releases / Video), headline + publisher + age +
+// tabs (All / News / Press releases), headline + publisher + age +
 // related tickers with their live % change, new stories announced as they
 // arrive ("3 new stories"), and "Load more" paging by publish time.
 // Stories come from news_items, written by the sync-news edge function.
@@ -27,11 +27,11 @@ const TABS = [
   { id: "all", label: "All" },
   { id: "STORY", label: "News" },
   { id: "PRESS", label: "Press releases" },
-  { id: "VIDEO", label: "Video" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 const INDEX_NAMES: Record<string, string> = { "^GSPC": "S&P 500", "^IXIC": "Nasdaq", "^DJI": "Dow", "^RUT": "Russell 2000", "^VIX": "VIX" };
-const LIVE_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
+// listed tickers only: no indexes (^GSPC), futures (CL=F), FX or private companies (ANTH.PVT)
+const LIVE_RE = /^[A-Z]{1,5}(\.[A-Z])?$/;
 
 export function ago(iso: string, now: number): string {
   const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
@@ -53,6 +53,7 @@ export default function NewsFeed({
   maxHeight,
   filterable = false,
   chip,
+  scopes,
 }: {
   title: string;
   /** only stories tagged with one of these tickers (undefined = every story) */
@@ -65,10 +66,14 @@ export default function NewsFeed({
   /** show a ticker filter box */
   filterable?: boolean;
   chip?: string;
+  /** scope buttons (e.g. All stories / Market / Your plays); each narrows the feed to its tickers */
+  scopes?: { id: string; label: string; symbols?: string[] }[];
 }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [tab, setTab] = useState<TabId>("all");
   const [filter, setFilter] = useState("");
+  const [scope, setScope] = useState(scopes?.[0]?.id ?? "");
+  const scopeSyms = scopes?.find((x) => x.id === scope)?.symbols;
   const [items, setItems] = useState<Story[]>([]);
   const [pending, setPending] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,7 +91,7 @@ export default function NewsFeed({
         .slice(0, 20),
     [filter]
   );
-  const symKey = (typed.length ? typed : symbols ?? []).join(",");
+  const symKey = (typed.length ? typed : scopeSyms ?? symbols ?? []).join(",");
   const syms = useMemo(() => (symKey ? symKey.split(",") : null), [symKey]);
   const seq = useRef(0);
 
@@ -186,8 +191,29 @@ export default function NewsFeed({
         </>
       }
     >
-      {(tabs || filterable) && (
+      {(tabs || filterable || scopes) && (
         <div className="flex flex-wrap items-center gap-2 border-b border-term-border px-2 py-1">
+          {scopes && (
+            <span className="flex gap-px" role="tablist" aria-label="Which stories">
+              {scopes.map((sc) => (
+                <button
+                  key={sc.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={scope === sc.id && !typed.length}
+                  onClick={() => {
+                    setScope(sc.id);
+                    setFilter("");
+                  }}
+                  className={`border px-2 py-0.5 text-[10.5px] font-semibold ${
+                    scope === sc.id && !typed.length ? "border-term-brand bg-term-brand/15 text-term-brand" : "border-term-border text-term-dim hover:text-term-text"
+                  }`}
+                >
+                  {sc.label}
+                </button>
+              ))}
+            </span>
+          )}
           {tabs && (
             <span className="flex gap-px" role="tablist" aria-label="Story type">
               {TABS.map((t) => (
