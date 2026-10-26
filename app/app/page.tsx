@@ -59,7 +59,7 @@ function Empty({ children }: { children: ReactNode }) {
 }
 
 /**
- * VIBA Terminal. The page is a tabbed workspace; every tab is a grid of
+ * VIBA. The page is a tabbed workspace; every tab is a grid of
  * dockable-looking windows in the same workstation style:
  *   Overview        -- regime quotes, today's plays at a glance, sector ladder, alerts
  *   Plays           -- stock plays and smart money plays with full trade plans

@@ -59,7 +59,7 @@ export default function Workspace({ tabs, panels }: { tabs: WorkspaceTab[]; pane
     <>
       <div
         role="tablist"
-        aria-label="VIBA Terminal sections"
+        aria-label="VIBA sections"
         data-tour="tabs"
         className="sticky top-[30px] z-10 flex gap-px overflow-x-auto border-b border-term-border bg-[#161616] px-[3px] pt-[3px]"
       >
