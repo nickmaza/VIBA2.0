@@ -18,8 +18,8 @@ const plexSans = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "VIBA Terminal",
-  description: "VIBA Terminal: market regime, sector rotation, stock and leveraged-ETF plays with exact trade plans, and a chart and search tool that marks levels and setups on any ticker.",
+  title: "VIBA",
+  description: "VIBA: market regime, sector rotation, stock and leveraged-ETF plays with exact trade plans, and a chart and search tool that marks levels and setups on any ticker.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

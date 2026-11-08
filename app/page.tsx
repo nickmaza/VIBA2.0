@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Bricolage_Grotesque } from "next/font/google";
 import RegimeRiver from "@/components/landing/RegimeRiver";
+import VibaLogo from "@/components/brand/VibaLogo";
 import LegacyHashRedirect from "@/components/landing/LegacyHashRedirect";
 import styles from "@/components/landing/landing.module.css";
 import { getLandingData } from "@/lib/landing";
@@ -15,7 +16,7 @@ const display = Bricolage_Grotesque({
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "VIBA Terminal: read the market before you trade it",
+  title: "VIBA: read the market before you trade it",
   description:
     "VIBA turns prices, options, insider filings and customer reviews into one reading of the market, then shows the stocks that fit it with an entry, a stop and two targets.",
 };
@@ -33,7 +34,7 @@ function Tickers({ list }: { list: string[] }) {
   return (
     <span className={styles.tickers}>
       {list.map((s) => (
-        <a key={s} href={`/terminal#chart/${s}`}>
+        <a key={s} href={`/app#chart/${s}`}>
           {s}
         </a>
       ))}
@@ -74,7 +75,7 @@ function Stop({
         <h3>{title}</h3>
         {children}
         {today && <p className={styles.stopToday}>{today}</p>}
-        <a className={styles.stopLink} href={`/terminal#${tab}`}>
+        <a className={styles.stopLink} href={`/app#${tab}`}>
           Open {tabLabel}
         </a>
       </div>
@@ -92,15 +93,15 @@ export default async function Landing() {
       <LegacyHashRedirect />
 
       <header className={styles.nav}>
-        <a href="/" className={styles.wordmark}>
-          VIBA <span>Terminal</span>
+        <a href="/" className={styles.wordmark} aria-label="VIBA home">
+          <VibaLogo className={styles.logo} />
         </a>
         <nav aria-label="Landing page">
           <a href="#how">How it works</a>
           <a href="#data">The data</a>
-          <a href="/terminal?tour=1">Tour</a>
-          <a href="/terminal" className={styles.navCta}>
-            Open the terminal
+          <a href="/app?tour=1">Tour</a>
+          <a href="/app" className={styles.navCta}>
+            Open VIBA
           </a>
         </nav>
       </header>
@@ -114,10 +115,10 @@ export default async function Landing() {
               it and writes each one a trade plan: an entry, a stop and two targets.
             </p>
             <div className={styles.ctas}>
-              <a href="/terminal" className={styles.primary}>
-                Open the terminal
+              <a href="/app" className={styles.primary}>
+                Open VIBA
               </a>
-              <a href="/terminal?tour=1" className={styles.secondary}>
+              <a href="/app?tour=1" className={styles.secondary}>
                 Take the two-minute tour
               </a>
             </div>
@@ -132,7 +133,7 @@ export default async function Landing() {
 
         <section id="how" className={styles.how} aria-labelledby="how-title">
           <h2 id="how-title">From the market&rsquo;s mood to one trade, in five steps</h2>
-          <p className={styles.sectionLede}>Each step is a tab in the terminal, in the order most people use them.</p>
+          <p className={styles.sectionLede}>Each step is a tab in VIBA, in the order most people use them.</p>
           <ol className={styles.stops}>
             <Stop
               n={1}
@@ -289,9 +290,9 @@ export default async function Landing() {
 
         <section id="tour" className={styles.tour} aria-labelledby="tour-title">
           <div className={styles.tourInner}>
-            <h2 id="tour-title">New here? Let the terminal show you around.</h2>
+            <h2 id="tour-title">New here? Let VIBA show you around.</h2>
             <p>
-              The tour opens the terminal and walks through it one panel at a time: what each number means, where to click, and what
+              The tour opens VIBA and walks through it one panel at a time: what each number means, where to click, and what
               to look at first. It takes about two minutes. You can leave at any step and restart it from the Tour button in the
               menu bar.
             </p>
@@ -302,11 +303,11 @@ export default async function Landing() {
               <li>Charting any ticker, adding indicators and reading its news</li>
             </ol>
             <div className={styles.ctas}>
-              <a href="/terminal?tour=1" className={styles.primaryDark}>
+              <a href="/app?tour=1" className={styles.primaryDark}>
                 Start the tour
               </a>
-              <a href="/terminal" className={styles.secondaryDark}>
-                Skip to the terminal
+              <a href="/app" className={styles.secondaryDark}>
+                Skip to VIBA
               </a>
             </div>
           </div>
@@ -314,7 +315,7 @@ export default async function Landing() {
       </main>
 
       <footer className={styles.footer}>
-        <span>VIBA Terminal</span>
+        <VibaLogo className={styles.footerLogo} ink="#e6e6e6" idSuffix="-footer" />
         <span>Market data from Yahoo Finance, CBOE, SEC EDGAR, Senate and House disclosures, Apple App Store and Steam.</span>
       </footer>
     </div>

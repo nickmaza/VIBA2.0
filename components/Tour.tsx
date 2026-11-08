@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 // Guided tour of the terminal. Each step switches to its tab, scrolls its
 // panel into view, dims everything else and explains what the panel shows.
-// Starts from /terminal?tour=1 (the landing page's buttons) or the Tour
+// Starts from /app?tour=1 (the landing page's buttons) or the Tour
 // button in the menu bar; Esc closes it, arrow keys step through it.
 
 interface Step {
@@ -16,8 +16,8 @@ interface Step {
 
 const STEPS: Step[] = [
   {
-    title: "Welcome to VIBA Terminal",
-    body: "This tour walks through the terminal one panel at a time and takes about two minutes. Use Next and Back, or the arrow keys. You can close it at any point and restart it from Tour in the menu bar.",
+    title: "Welcome to VIBA",
+    body: "This tour walks through VIBA one panel at a time and takes about two minutes. Use Next and Back, or the arrow keys. You can close it at any point and restart it from Tour in the menu bar.",
   },
   {
     target: "tabs",
@@ -64,7 +64,7 @@ const STEPS: Step[] = [
     tab: "chart",
     target: "search",
     title: "Chart any ticker",
-    body: "Type a ticker or a company name and press Analyze. Clicking a ticker anywhere in the terminal, in a play or a news story, also brings it here.",
+    body: "Type a ticker or a company name and press Analyze. Clicking a ticker anywhere in VIBA, in a play or a news story, also brings it here.",
   },
   {
     tab: "chart",
@@ -93,7 +93,7 @@ const STEPS: Step[] = [
   {
     target: "status",
     title: "Is everything live?",
-    body: "QUOTES LIVE means prices are streaming; RT LIVE means the rest of the terminal refreshes itself when new data lands. If a data source fails, the SUPABASE badge turns red and names it.",
+    body: "QUOTES LIVE means prices are streaming; RT LIVE means the rest of VIBA refreshes itself when new data lands. If a data source fails, the SUPABASE badge turns red and names it.",
   },
   {
     tab: "overview",

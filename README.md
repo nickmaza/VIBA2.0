@@ -1,4 +1,4 @@
-# VIBA Terminal
+# VIBA
 
 A trading-workstation style dashboard for the US market: a composite regime
 score for SPY / QQQ / IWM, a sector rotation ranking, stock plays with exact
@@ -80,7 +80,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 (landing page) or http://localhost:3000/terminal. The app reads the VIBA Supabase project out of the
+Open http://localhost:3000 (landing page) or http://localhost:3000/app. The app reads the VIBA Supabase project out of the
 box (`lib/supabase.ts`). To point it at another project, copy `.env.example` to
 `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Both are public values: the anon key cannot
@@ -125,10 +125,10 @@ Vercel: all writes happen inside Supabase.
 `/` is the landing page (`app/page.tsx`, `components/landing/`): the SPY regime score
 drawn as a "river" through the five regime bands, the five sections in the order
 you use them with today's real numbers, where the data comes from, and a way into
-the terminal. The terminal itself lives at `/terminal`; old links such as
-`/#chart/NVDA` are forwarded there.
+the app. The app itself lives at `/app`; old links such as `/#chart/NVDA`
+and `/terminal` are forwarded there.
 
-The guided tour (`components/Tour.tsx`) opens from `/terminal?tour=1` or the Tour
+The guided tour (`components/Tour.tsx`) opens from `/app?tour=1` or the Tour
 button in the menu bar. Each step switches to its tab, scrolls to the panel marked
 `data-tour="..."`, dims the rest and explains it; arrow keys step, Esc closes.
 
